@@ -822,13 +822,15 @@ const Forest = ({
             postProcessing.resize(width, height);
         };
 
-        const clock = new THREE.Clock();
+        const timer = new THREE.Timer();
+        timer.connect(document);
         let frame = 0;
-        const animate = () => {
+        const animate = (timestamp) => {
             frame = requestAnimationFrame(animate);
+            timer.update(timestamp);
             controls?.update();
-            const delta = clock.getDelta();
-            const elapsed = clock.getElapsedTime();
+            const delta = timer.getDelta();
+            const elapsed = timer.getElapsed();
             walkControls?.update(delta);
             worldOrigin.rebaseIfNeeded(camera, controls?.target);
 
@@ -944,6 +946,7 @@ const Forest = ({
             }
             window.removeEventListener("pagehide", onPageHide);
             positionSaver?.flush();
+            timer.dispose();
             cancelAnimationFrame(frame);
             resizeObserver.disconnect();
             detachScrollWalk?.();

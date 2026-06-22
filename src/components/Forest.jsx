@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import ForestDarkControls from "@/components/ForestDarkControls";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { createPlantAtlasBillboards } from "@/utils/plantAtlasBillboard";
@@ -37,8 +38,9 @@ import {
     createWalkPositionSaver,
     loadWalkPosition,
 } from "@/api/walkPosition";
+import { createForestDarkSystem } from "@/utils/forestDark";
 
-const SHOW_LOADING_SCREEN = true;
+const SHOW_LOADING_SCREEN = false;
 
 const disposeObject = (object) => {
     const disposeMaterial = (material) => {
@@ -431,8 +433,15 @@ const Forest = ({
     const plantMotionTrackerRef = useRef(createPlantScreenMotionTracker());
     const hasInitializedPlantsRef = useRef(false);
     const initialLoadCompleteRef = useRef(false);
+    const darkSystemRef = useRef(null);
     const [ready, setReady] = useState(false);
     const [loadProgress, setLoadProgress] = useState(0);
+    const [darkAmount, setDarkAmount] = useState(0);
+
+    const handleDarkAmountChange = useCallback((next) => {
+        setDarkAmount(next);
+        darkSystemRef.current?.setAmount(next);
+    }, []);
 
     const getPlantMotionFactor = (plant) => {
         const shrinking = shrinkingPlantsRef.current.get(plant.id);
@@ -711,6 +720,17 @@ const Forest = ({
         ground.position.y = -0.01;
         worldOrigin.anchor.add(ground);
 
+        const darkSystem = createForestDarkSystem({
+            scene,
+            fog: scene.fog,
+            groundMaterial: ground.material,
+            composer: postProcessing.composer,
+            bloomPass: postProcessing.bloomPass,
+            glitchPass: postProcessing.glitchPass,
+            onAmountChange: setDarkAmount,
+        });
+        darkSystemRef.current = darkSystem;
+
         const groundRipples = createGroundRipples(scene, {
             unbounded: unboundedMovement,
         });
@@ -885,6 +905,7 @@ const Forest = ({
                   )
                 : { strength: 0, trailX: 0, trailY: 0 };
             groundRipples.update(elapsed, camera);
+            darkSystem.update(delta);
             postProcessing.update(elapsed, { plants: plantMotion });
             postProcessing.composer.render();
         };
@@ -967,6 +988,8 @@ const Forest = ({
                 followPlantStateRef.current.plantKey = null;
             }
             groundRipples.dispose();
+            darkSystem.dispose();
+            darkSystemRef.current = null;
             scene.remove(sceneLight);
             disposeObject(scene);
             if (postProcessingRef) {
@@ -1080,6 +1103,11 @@ const Forest = ({
                     </div>
                 </div>
             )}
+            <ForestDarkControls
+                value={darkAmount}
+                onChange={handleDarkAmountChange}
+                ready={ready}
+            />
         </div>
     );
 };

@@ -6,6 +6,12 @@ export const GARDEN_SHIFT_SHADES = {
     minus: new THREE.Vector3(0.93, 0.68, 0.52),
 };
 
+export const FOREST_NIGHT_SHIFT_SHADES = {
+    plus: new THREE.Vector3(0.01, 0.03, 0.05),
+    center: new THREE.Vector3(0.1, 0.12, 0.16),
+    minus: new THREE.Vector3(0.28, 0.3, 0.38),
+};
+
 export const applyGardenShiftColors = (
     uniforms,
     shades = GARDEN_SHIFT_SHADES

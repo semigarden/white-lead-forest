@@ -38,38 +38,46 @@ export const GardenWarpShader = {
 
         ${GARDEN_SHADE_SHIFT_GLSL}
 
-        vec2 rippleWarp(vec2 uv, float t) {
+        float warpEdgeMask(vec2 uv) {
+            float inset = min(min(uv.x, 1.0 - uv.x), min(uv.y, 1.0 - uv.y));
+            return smoothstep(0.0, 0.16, inset);
+        }
+
+        vec2 rippleWarp(vec2 uv, float t, float amount) {
             vec2 warped = uv;
-            warped.x += sin(uv.y * 48.0 + t * 1.8) * ripple;
-            warped.y += sin(uv.x * 42.0 - t * 1.3) * ripple * 0.72;
-            warped.x += sin(uv.y * 12.0 - t * 0.55) * ripple * 0.45;
+            warped.x += sin(uv.y * 48.0 + t * 1.8) * amount;
+            warped.y += sin(uv.x * 42.0 - t * 1.3) * amount * 0.72;
+            warped.x += sin(uv.y * 12.0 - t * 0.55) * amount * 0.45;
             return warped;
         }
 
-        vec2 swirlWarp(vec2 uv, float t) {
+        vec2 swirlWarp(vec2 uv, float t, float amount) {
             vec2 centered = uv - 0.5;
             float radius = length(centered);
             float angle = atan(centered.y, centered.x);
-            angle += sin(t * 0.42 + radius * 9.0) * swirl * radius;
+            angle += sin(t * 0.42 + radius * 9.0) * amount * radius;
             return 0.5 + vec2(cos(angle), sin(angle)) * radius;
         }
 
-        void main() {
-            vec2 uv = rippleWarp(vUv, time);
-            uv = swirlWarp(uv, time);
+        vec2 clampUv(vec2 uv) {
+            return clamp(uv, 0.0, 1.0);
+        }
 
-            if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
-                gl_FragColor = vec4(0.0, 0.006, 0.003, 1.0);
-                return;
-            }
+        void main() {
+            float edgeMask = warpEdgeMask(vUv);
+            float rippleAmt = ripple * edgeMask;
+            float swirlAmt = swirl * edgeMask;
+
+            vec2 warped = swirlWarp(rippleWarp(vUv, time, rippleAmt), time, swirlAmt);
+            vec2 uv = clampUv(warped);
 
             vec2 fromCenter = uv - 0.5;
             float edge = length(fromCenter);
-            vec2 offset = normalize(fromCenter + 1e-5) * chroma * (0.4 + edge * 1.8);
+            vec2 offset = normalize(fromCenter + 1e-5) * chroma * edgeMask * (0.4 + edge * 1.8);
 
-            vec3 sampleA = texture2D(tDiffuse, uv + offset).rgb;
+            vec3 sampleA = texture2D(tDiffuse, clampUv(uv + offset)).rgb;
             vec3 sampleB = texture2D(tDiffuse, uv).rgb;
-            vec3 sampleC = texture2D(tDiffuse, uv - offset).rgb;
+            vec3 sampleC = texture2D(tDiffuse, clampUv(uv - offset)).rgb;
 
             vec3 color = shadeShift(sampleA, sampleB, sampleC, shadeA, shadeB, shadeC);
             gl_FragColor = vec4(color, texture2D(tDiffuse, uv).a);

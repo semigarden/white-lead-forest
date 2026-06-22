@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import ForestDarkControls from "@/components/ForestDarkControls";
+import ForestExhaustControls from "@/components/ForestExhaustControls";
+import { createForestDarkSystem } from "@/utils/forestDark";
+import { createForestExhaustSystem } from "@/utils/forestExhaust";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { createPlantAtlasBillboards } from "@/utils/plantAtlasBillboard";
@@ -26,7 +29,10 @@ import {
     chunkCoord,
 } from "@/utils/gardenChunks";
 import { createProceduralForestManager, collectInitialChunkKeys, DEFAULT_PROCEDURAL_FOREST_CONFIG, headingBucket } from "@/utils/proceduralForest";
-import { createGardenComposer } from "@/utils/gardenPostProcessing";
+import {
+    createGardenComposer,
+    FOREST_POST_PROCESSING_PRESET,
+} from "@/utils/gardenPostProcessing";
 import {
     createGardenRenderer,
     gardenPixelRatio,
@@ -38,7 +44,6 @@ import {
     createWalkPositionSaver,
     loadWalkPosition,
 } from "@/api/walkPosition";
-import { createForestDarkSystem } from "@/utils/forestDark";
 
 const SHOW_LOADING_SCREEN = false;
 
@@ -434,13 +439,20 @@ const Forest = ({
     const hasInitializedPlantsRef = useRef(false);
     const initialLoadCompleteRef = useRef(false);
     const darkSystemRef = useRef(null);
+    const exhaustSystemRef = useRef(null);
     const [ready, setReady] = useState(false);
     const [loadProgress, setLoadProgress] = useState(0);
     const [darkAmount, setDarkAmount] = useState(0);
+    const [exhaustAmount, setExhaustAmount] = useState(0);
 
     const handleDarkAmountChange = useCallback((next) => {
         setDarkAmount(next);
         darkSystemRef.current?.setAmount(next);
+    }, []);
+
+    const handleExhaustAmountChange = useCallback((next) => {
+        setExhaustAmount(next);
+        exhaustSystemRef.current?.setAmount(next);
     }, []);
 
     const getPlantMotionFactor = (plant) => {
@@ -731,6 +743,14 @@ const Forest = ({
         });
         darkSystemRef.current = darkSystem;
 
+        const exhaustSystem = createForestExhaustSystem({
+            warpPass: postProcessing.warpPass,
+            warpRipple: FOREST_POST_PROCESSING_PRESET.warpRipple,
+            warpSwirl: FOREST_POST_PROCESSING_PRESET.warpSwirl,
+            onAmountChange: setExhaustAmount,
+        });
+        exhaustSystemRef.current = exhaustSystem;
+
         const groundRipples = createGroundRipples(scene, {
             unbounded: unboundedMovement,
         });
@@ -906,7 +926,9 @@ const Forest = ({
                 : { strength: 0, trailX: 0, trailY: 0 };
             groundRipples.update(elapsed, camera);
             darkSystem.update(delta);
+            exhaustSystem.update(delta);
             postProcessing.update(elapsed, { plants: plantMotion });
+            exhaustSystem.applyFrame(elapsed);
             postProcessing.composer.render();
         };
 
@@ -989,7 +1011,9 @@ const Forest = ({
             }
             groundRipples.dispose();
             darkSystem.dispose();
+            exhaustSystem.dispose();
             darkSystemRef.current = null;
+            exhaustSystemRef.current = null;
             scene.remove(sceneLight);
             disposeObject(scene);
             if (postProcessingRef) {
@@ -1103,11 +1127,18 @@ const Forest = ({
                     </div>
                 </div>
             )}
-            <ForestDarkControls
-                value={darkAmount}
-                onChange={handleDarkAmountChange}
-                ready={ready}
-            />
+            <div className={`forest-controls${ready ? " forest-controls--ready" : ""}`}>
+                <ForestExhaustControls
+                    value={exhaustAmount}
+                    onChange={handleExhaustAmountChange}
+                    ready={ready}
+                />
+                <ForestDarkControls
+                    value={darkAmount}
+                    onChange={handleDarkAmountChange}
+                    ready={ready}
+                />
+            </div>
         </div>
     );
 };

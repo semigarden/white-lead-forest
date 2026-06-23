@@ -91,6 +91,12 @@ const pointerToGround = (
     const rect = domElement.getBoundingClientRect();
     if (!rect.width || !rect.height) return false;
 
+    const aspect = rect.width / rect.height;
+    if (Math.abs(camera.aspect - aspect) > 0.0001) {
+        camera.aspect = aspect;
+        camera.updateProjectionMatrix();
+    }
+
     const ndc = new THREE.Vector2(
         ((clientX - rect.left) / rect.width) * 2 - 1,
         -((clientY - rect.top) / rect.height) * 2 + 1
@@ -282,6 +288,11 @@ export const attachGardenWalkControls = ({
 
         setMoveTarget(groundHit.x, groundHit.z);
         return true;
+    };
+
+    const onViewportResize = () => {
+        clearMoveTarget();
+        lookAtAnimation = null;
     };
 
     const applyPanMove = (dx, dy) => {
@@ -615,6 +626,7 @@ export const attachGardenWalkControls = ({
             }
         },
         resetPointerState,
+        onViewportResize,
         update,
         dispose: () => {
             domElement.removeEventListener("pointerdown", onPointerDown);

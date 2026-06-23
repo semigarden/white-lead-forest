@@ -948,8 +948,8 @@ const Forest = ({
 
             camera.aspect = width / height;
             camera.updateProjectionMatrix();
-            renderer.setSize(width, height, false);
             postProcessing.resize(width, height);
+            walkControls?.onViewportResize?.();
         };
 
         const timer = new THREE.Timer();

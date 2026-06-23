@@ -7,16 +7,16 @@ import {
     unlockForestAudio,
 } from "@/utils/forestAudio";
 
-export const FOREST_RIVER_MAX_SPAWN_DISTANCE = 5000;
+export const FOREST_RIVER_MAX_SPAWN_DISTANCE = 1000;
 
 const DEFAULT_CONFIG = {
     maxSpawnDistance: FOREST_RIVER_MAX_SPAWN_DISTANCE,
     refDistance: 96,
-    maxAudioDistance: 5500,
-    rolloffFactor: 0.45,
+    maxAudioDistance: 100000,
+    rolloffFactor: 0,
     volume: 0.9,
     loop: true,
-    navigationMinGain: 0.1,
+    navigationMinGain: 1,
     navigationMaxGain: 1,
     navigationDistancePower: 0.48,
     facingBoost: 1,
@@ -26,9 +26,8 @@ const DEFAULT_CONFIG = {
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 
-const sampleRiverPosition = (originX, originZ, maxDistance) => {
+const sampleRiverPosition = (originX, originZ, distance) => {
     const angle = Math.random() * Math.PI * 2;
-    const distance = Math.random() * maxDistance;
 
     return {
         x: originX + Math.cos(angle) * distance,

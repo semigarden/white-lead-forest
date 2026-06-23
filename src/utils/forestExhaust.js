@@ -10,7 +10,7 @@ const DEFAULT_CONFIG = {
     swirlBoost: 2.5,
     chromaBoost: 3,
     walkIncreaseRate: 0.0555, // 0.0055
-    restDecreaseRate: 0.0085,
+    restDecreaseRate: 0.0585, // 0.0085
     referenceWalkSpeed: 1.2,
     moveThreshold: 0.015,
     audioVolume: 0.75,

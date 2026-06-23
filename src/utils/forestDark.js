@@ -17,7 +17,6 @@ const DEFAULT_CONFIG = {
     maxRiverDistance: FOREST_RIVER_MAX_SPAWN_DISTANCE,
     darknessPower: 0.62,
     darkenApproachRate: 0.85,
-    lightenRetreatRate: 1.15,
     fogDarkNear: 10,
     fogDarkFar: 42,
     bloomThresholdDark: 0.02,
@@ -350,20 +349,21 @@ export const createForestDarkSystem = ({
     };
 
     const updateProximity = (delta = 0, riverDistance = Number.POSITIVE_INFINITY) => {
-        if (delta <= 0) {
-            return { amount, target: targetDarknessForDistance(riverDistance, options) };
-        }
-
         const target = targetDarknessForDistance(riverDistance, options);
-        const diff = target - amount;
 
-        if (Math.abs(diff) < 0.0001) {
+        if (delta <= 0) {
             return { amount, target };
         }
 
-        const rate =
-            diff > 0 ? options.darkenApproachRate : options.lightenRetreatRate;
-        applyAmount(amount + diff * Math.min(1, rate * delta));
+        const diff = target - amount;
+
+        if (diff <= 0.0001) {
+            return { amount, target };
+        }
+
+        applyAmount(
+            amount + diff * Math.min(1, options.darkenApproachRate * delta)
+        );
 
         return { amount, target };
     };

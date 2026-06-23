@@ -80,13 +80,28 @@ const lookAnglesToward = (state, cameraY, targetX, targetY, targetZ) => {
     return walkAnglesToward(state.x, state.z, cameraY, targetX, targetY, targetZ);
 };
 
+const worldPointToLogical = (worldX, worldY, worldZ, worldAnchor, worldOrigin) => {
+    const originX = worldOrigin?.x ?? 0;
+    const originZ = worldOrigin?.z ?? 0;
+
+    if (worldAnchor) {
+        return {
+            x: worldX - worldAnchor.position.x + originX,
+            y: worldY,
+            z: worldZ - worldAnchor.position.z + originZ,
+        };
+    }
+
+    return { x: worldX, y: worldY, z: worldZ };
+};
+
 const pointerToGround = (
     camera,
     domElement,
     clientX,
     clientY,
     target,
-    { groundMeshes = [], worldAnchor = null } = {}
+    { groundMeshes = [], worldAnchor = null, worldOrigin = null } = {}
 ) => {
     const rect = domElement.getBoundingClientRect();
     if (!rect.width || !rect.height) return false;
@@ -108,21 +123,32 @@ const pointerToGround = (
         const hits = raycaster.intersectObjects(groundMeshes, false);
         if (hits.length > 0) {
             const hit = hits[0].point;
-            if (worldAnchor) {
-                target.set(
-                    hit.x - worldAnchor.position.x,
-                    hit.y,
-                    hit.z - worldAnchor.position.z
-                );
-            } else {
-                target.copy(hit);
-            }
+            const logical = worldPointToLogical(
+                hit.x,
+                hit.y,
+                hit.z,
+                worldAnchor,
+                worldOrigin
+            );
+            target.set(logical.x, logical.y, logical.z);
             return true;
         }
     }
 
     const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
-    return raycaster.ray.intersectPlane(groundPlane, target);
+    if (!raycaster.ray.intersectPlane(groundPlane, target)) {
+        return false;
+    }
+
+    const logical = worldPointToLogical(
+        target.x,
+        target.y,
+        target.z,
+        worldAnchor,
+        worldOrigin
+    );
+    target.set(logical.x, logical.y, logical.z);
+    return true;
 };
 
 export const attachGardenWalkControls = ({
@@ -281,6 +307,7 @@ export const attachGardenWalkControls = ({
             !pointerToGround(camera, domElement, clientX, clientY, groundHit, {
                 groundMeshes,
                 worldAnchor,
+                worldOrigin,
             })
         ) {
             return false;
@@ -291,6 +318,11 @@ export const attachGardenWalkControls = ({
     };
 
     const onViewportResize = () => {
+        clearMoveTarget();
+        lookAtAnimation = null;
+    };
+
+    const onWorldRebase = () => {
         clearMoveTarget();
         lookAtAnimation = null;
     };
@@ -627,6 +659,7 @@ export const attachGardenWalkControls = ({
         },
         resetPointerState,
         onViewportResize,
+        onWorldRebase,
         update,
         dispose: () => {
             domElement.removeEventListener("pointerdown", onPointerDown);

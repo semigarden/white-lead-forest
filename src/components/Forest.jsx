@@ -969,6 +969,7 @@ const Forest = ({
                     worldOrigin.origin.x,
                     worldOrigin.origin.z
                 );
+                walkControls?.onWorldRebase?.();
             }
             riverSystem.syncWorldOrigin(worldOrigin.origin);
 

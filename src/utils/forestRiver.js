@@ -2,7 +2,7 @@ import * as THREE from "three";
 import riverAudioUrl from "../../material/river.mp3?url";
 
 const DEFAULT_CONFIG = {
-    maxSpawnDistance: 5000,
+    maxSpawnDistance: 100, // 5km
     refDistance: 96,
     maxAudioDistance: 5500,
     rolloffFactor: 0.45,
@@ -13,6 +13,7 @@ const DEFAULT_CONFIG = {
     navigationDistancePower: 0.48,
     facingBoost: 1,
     behindAttenuation: 0.62,
+    nearFieldRadius: 140,
 };
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
@@ -69,16 +70,24 @@ const computeNavigation = (logicalPosition, playerX, playerZ, camera, options) =
         (options.navigationMaxGain - options.navigationMinGain) *
             proximity ** options.navigationDistancePower;
 
-    const facingGain = 1 + Math.max(0, alignment) * options.facingBoost;
-    const behindGain = alignment < -0.18 ? options.behindAttenuation : 1;
-    const navigationGain = distanceGain * facingGain * behindGain;
+    const nearBlend = clamp(1 - distance / options.nearFieldRadius, 0, 1);
+    const facingWeight = 1 - nearBlend;
+
+    const rawFacingGain = 1 + Math.max(0, alignment) * options.facingBoost;
+    const rawBehindGain = alignment < -0.18 ? options.behindAttenuation : 1;
+    const guidedDirectionGain = rawFacingGain * rawBehindGain;
+    const directionGain = 1 + (guidedDirectionGain - 1) * facingWeight;
+
+    const navigationGain = distanceGain * directionGain;
 
     return {
         distance,
         alignment,
         proximity,
+        nearBlend,
         distanceGain,
-        facingGain,
+        facingGain: rawFacingGain,
+        directionGain,
         navigationGain,
         riverX: logicalPosition.x,
         riverZ: logicalPosition.z,

@@ -48,7 +48,8 @@ import {
     loadWalkPosition,
 } from "@/api/walkPosition";
 
-const SHOW_LOADING_SCREEN = false;
+const SHOW_LOADING_SCREEN = true;
+const SHOW_UI = false;
 
 const disposeObject = (object) => {
     const disposeMaterial = (material) => {
@@ -1156,11 +1157,22 @@ const Forest = ({
                     </div>
                 </div>
             )}
-            <ForestRiverSystem metricsRef={riverSystemMetricsRef} ready={ready} />
-            <div className={`forest-controls${ready ? " forest-controls--ready" : ""}`}>
-                <ForestExhaustControls value={exhaustAmount} ready={ready} />
-                <ForestDarkControls value={darkAmount} ready={ready} />
-            </div>
+            {SHOW_UI && (
+                <>
+                    <ForestRiverSystem
+                        metricsRef={riverSystemMetricsRef}
+                        ready={ready}
+                    />
+                    <div
+                        className={`forest-controls${
+                            ready ? " forest-controls--ready" : ""
+                        }`}
+                    >
+                        <ForestExhaustControls value={exhaustAmount} ready={ready} />
+                        <ForestDarkControls value={darkAmount} ready={ready} />
+                    </div>
+                </>
+            )}
         </div>
     );
 };

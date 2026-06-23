@@ -139,7 +139,10 @@ const createGroundSampling = ({ unbounded = false } = {}) => {
     return { buildVisibleGround, randomVisibleGroundPoint };
 };
 
-export const createGroundRipples = (scene, { unbounded = false } = {}) => {
+export const createGroundRipples = (
+    scene,
+    { unbounded = false, sampleGroundHeight = null } = {}
+) => {
     const { buildVisibleGround, randomVisibleGroundPoint } =
         createGroundSampling({ unbounded });
     const root = new THREE.Group();
@@ -179,7 +182,8 @@ export const createGroundRipples = (scene, { unbounded = false } = {}) => {
         slot.maxScale = maxScale;
         slot.x = point.x;
         slot.z = point.z;
-        slot.mesh.position.set(point.x, RIPPLE_Y, point.z);
+        const groundY = sampleGroundHeight?.(point.x, point.z) ?? 0;
+        slot.mesh.position.set(point.x, groundY + RIPPLE_Y, point.z);
         slot.mesh.scale.setScalar(0.01);
         slot.mesh.material.opacity = 0;
         slot.mesh.visible = true;

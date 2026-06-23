@@ -44,7 +44,7 @@ const perlin2D = (x, z, seed) => {
     return lerp(lerp(n00, n10, u), lerp(n01, n11, u), v);
 };
 
-const fbm2D = (
+export const fbm2D = (
     x,
     z,
     seed,

@@ -54,7 +54,8 @@ export const syncCameraFollowPlants = (
     plantRoot,
     camera,
     followPlants = [],
-    logicalPosition = null
+    logicalPosition = null,
+    sampleGroundHeight = null
 ) => {
     if (!plantRoot || !camera || followPlants.length === 0) return;
 
@@ -68,7 +69,7 @@ export const syncCameraFollowPlants = (
         const plantId = child.userData.plantId;
         if (!plantId || !followIds.has(plantId)) return;
 
-        setAtlasInstancePosition(child, 0, x, z);
+        setAtlasInstancePosition(child, 0, x, z, sampleGroundHeight);
     });
 };
 

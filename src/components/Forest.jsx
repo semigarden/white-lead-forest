@@ -42,6 +42,7 @@ import {
     setGardenTextureRenderer,
 } from "@/utils/gardenRenderer";
 import { createGroundRipples } from "@/utils/groundRipples";
+import { createForestTerrain } from "@/utils/forestTerrain";
 import { createWorldOriginController } from "@/utils/worldOrigin";
 import {
     createWalkPositionSaver,
@@ -125,6 +126,7 @@ const createChunkContent = ({
     plants,
     getInitialGrow = () => 1,
     plantScaleMultiplier = 1,
+    sampleGroundHeight = null,
 }) => {
     const gardenPlants = normalizePlants(plants);
     const group = new THREE.Group();
@@ -135,12 +137,14 @@ const createChunkContent = ({
         createPlantAtlasBillboards(gardenPlants, {
             getInitialGrow,
             plantScaleMultiplier,
+            sampleGroundHeight,
         })
     );
     group.add(plantGroup);
 
     const grass = createGrassField(gardenPlants, positions, {
         includeBaseGrass: false,
+        sampleGroundHeight,
     });
     group.add(grass);
 
@@ -199,6 +203,7 @@ const buildPlantChunk = ({
     proceduralForest = null,
     getInitialGrow = () => 1,
     plantScaleMultiplier = 1,
+    sampleGroundHeight = null,
     onNewPlants = null,
 }) => {
     const chunkPlants = [
@@ -224,6 +229,7 @@ const buildPlantChunk = ({
         plants: chunkPlants,
         getInitialGrow,
         plantScaleMultiplier,
+        sampleGroundHeight,
     });
     plantRoot.add(group);
     loadedChunks.set(key, { group, plantIds });
@@ -252,6 +258,7 @@ const warmupPlantMeshes = async ({
     getInitialGrow = () => 1,
     plantScaleMultiplier = 1,
     proceduralForest = null,
+    sampleGroundHeight = null,
     onNewPlants = null,
     onProgress,
     isCancelled = () => false,
@@ -308,6 +315,7 @@ const warmupPlantMeshes = async ({
             proceduralForest,
             getInitialGrow,
             plantScaleMultiplier,
+            sampleGroundHeight,
             onNewPlants,
         });
         onProgress?.((index + 1) / total);
@@ -325,6 +333,7 @@ const syncPlantChunks = ({
     getInitialGrow = () => 1,
     plantScaleMultiplier = 1,
     proceduralForest = null,
+    sampleGroundHeight = null,
     onNewPlants = null,
 }) => {
     if (!plantRoot) return;
@@ -348,6 +357,7 @@ const syncPlantChunks = ({
             proceduralForest,
             getInitialGrow,
             plantScaleMultiplier,
+            sampleGroundHeight,
             onNewPlants,
         });
     });
@@ -359,6 +369,7 @@ const syncFollowPlants = ({
     followPlants,
     getInitialGrow = () => 1,
     plantScaleMultiplier = 1,
+    sampleGroundHeight = null,
 }) => {
     if (!followRoot || !followState) return;
 
@@ -382,6 +393,7 @@ const syncFollowPlants = ({
         plants: followPlants,
         getInitialGrow,
         plantScaleMultiplier,
+        sampleGroundHeight,
     });
 
     group.traverse((child) => {
@@ -447,6 +459,7 @@ const Forest = ({
     const riverSystemRef = useRef(null);
     const riverSystemMetricsRef = useRef(null);
     const collisionSystemRef = useRef(null);
+    const sampleGroundHeightRef = useRef(null);
     const [ready, setReady] = useState(false);
     const [loadProgress, setLoadProgress] = useState(0);
     const [darkAmount, setDarkAmount] = useState(0);
@@ -544,6 +557,7 @@ const Forest = ({
             getInitialGrow,
             plantScaleMultiplier: plantScaleMultiplierRef.current,
             proceduralForest: manager,
+            sampleGroundHeight: sampleGroundHeightRef.current,
             onNewPlants: registerNewChunkPlants,
         });
         syncFollowPlants({
@@ -552,12 +566,14 @@ const Forest = ({
             followPlants,
             getInitialGrow,
             plantScaleMultiplier: plantScaleMultiplierRef.current,
+            sampleGroundHeight: sampleGroundHeightRef.current,
         });
         syncCameraFollowPlants(
             followPlantRootRef.current,
             camera,
             followPlants,
-            logicalCamera
+            logicalCamera,
+            sampleGroundHeightRef.current
         );
 
         lastSyncChunkRef.current = `${chunkCoord(logicalCamera.x)}:${chunkCoord(logicalCamera.z)}`;
@@ -648,6 +664,15 @@ const Forest = ({
         let detachScrollWalk = null;
         const collisionSystem = createForestCollisionSystem();
         collisionSystemRef.current = collisionSystem;
+
+        const terrain = createForestTerrain();
+        sampleGroundHeightRef.current = terrain.sampleHeight;
+        terrain.updateForOrigin(
+            worldOrigin.origin.x,
+            worldOrigin.origin.z
+        );
+        worldOrigin.anchor.add(terrain.mesh);
+
         const constrainPosition = (state, motion) => {
             if (!unboundedMovement) {
                 clampPointToBounds(state, movementTerritoryRef.current.bounds);
@@ -665,6 +690,9 @@ const Forest = ({
                 camera,
                 domElement: renderer.domElement,
                 cameraY: cameraOffset.y,
+                sampleGroundHeight: terrain.sampleHeight,
+                groundMeshes: [terrain.mesh],
+                worldAnchor: worldOrigin.anchor,
                 initialOffset: cameraOffset,
                 lookTarget: cameraTarget,
                 groundLookTarget: cameraTarget,
@@ -730,19 +758,11 @@ const Forest = ({
             }
         }
 
-        const ground = new THREE.Mesh(
-            new THREE.PlaneGeometry(160, 160),
-            new THREE.MeshBasicMaterial({ color: 0xffffff })
-        );
-        ground.rotation.x = -Math.PI / 2;
-        ground.position.y = -0.01;
-        worldOrigin.anchor.add(ground);
-
         const darkSystem = createForestDarkSystem({
             scene,
             camera,
             fog: scene.fog,
-            groundMaterial: ground.material,
+            groundMaterial: terrain.mesh.material,
             composer: postProcessing.composer,
             bloomPass: postProcessing.bloomPass,
             glitchPass: postProcessing.glitchPass,
@@ -761,6 +781,7 @@ const Forest = ({
 
         const groundRipples = createGroundRipples(scene, {
             unbounded: unboundedMovement,
+            sampleGroundHeight: terrain.sampleHeight,
         });
 
         const sceneLight = new THREE.Group();
@@ -795,7 +816,9 @@ const Forest = ({
         }
 
         const walkState = walkControls?.getState?.() ?? walkStateRef.current;
-        worldOrigin.rebaseIfNeeded(camera, controls?.target);
+        if (worldOrigin.rebaseIfNeeded(camera, controls?.target)) {
+            terrain.updateForOrigin(worldOrigin.origin.x, worldOrigin.origin.z);
+        }
         const initialView = {
             x: walkState?.x ?? worldOrigin.getLogicalXZ(camera.position.x, camera.position.z).x,
             z: walkState?.z ?? worldOrigin.getLogicalXZ(camera.position.x, camera.position.z).z,
@@ -807,6 +830,7 @@ const Forest = ({
             anchor: worldOrigin.anchor,
             originX: initialView.x,
             originZ: initialView.z,
+            sampleGroundHeight: terrain.sampleHeight,
         });
         riverSystemRef.current = riverSystem;
         riverSystem.syncWorldOrigin(worldOrigin.origin);
@@ -845,6 +869,7 @@ const Forest = ({
             getInitialGrow,
             plantScaleMultiplier: plantScaleMultiplierRef.current,
             proceduralForest: manager,
+            sampleGroundHeight: terrain.sampleHeight,
             onNewPlants: registerNewChunkPlants,
             onProgress: (progress) => {
                 if (!cancelled) {
@@ -861,8 +886,15 @@ const Forest = ({
             followPlants,
             getInitialGrow,
             plantScaleMultiplier: plantScaleMultiplierRef.current,
+            sampleGroundHeight: terrain.sampleHeight,
         });
-        syncCameraFollowPlants(followPlantRoot, camera, followPlants, initialView);
+        syncCameraFollowPlants(
+            followPlantRoot,
+            camera,
+            followPlants,
+            initialView,
+            terrain.sampleHeight
+        );
 
         lastSyncChunkRef.current = `${chunkCoord(initialView.x)}:${chunkCoord(initialView.z)}`;
         lastSyncHeadingRef.current = headingBucket(initialView.yaw);
@@ -889,7 +921,12 @@ const Forest = ({
             const delta = timer.getDelta();
             const elapsed = timer.getElapsed();
             walkControls?.update(delta);
-            worldOrigin.rebaseIfNeeded(camera, controls?.target);
+            if (worldOrigin.rebaseIfNeeded(camera, controls?.target)) {
+                terrain.updateForOrigin(
+                    worldOrigin.origin.x,
+                    worldOrigin.origin.z
+                );
+            }
             riverSystem.syncWorldOrigin(worldOrigin.origin);
 
             const logicalCamera = worldOrigin.getLogicalXZ(
@@ -1036,6 +1073,7 @@ const Forest = ({
                 followPlantStateRef.current.plantKey = null;
             }
             groundRipples.dispose();
+            terrain.dispose();
             collisionSystem.dispose();
             darkSystem.dispose();
             exhaustSystem.dispose();
@@ -1044,6 +1082,7 @@ const Forest = ({
             exhaustSystemRef.current = null;
             riverSystemRef.current = null;
             collisionSystemRef.current = null;
+            sampleGroundHeightRef.current = null;
             scene.remove(sceneLight);
             disposeObject(scene);
             if (postProcessingRef) {

@@ -94,9 +94,10 @@ export const createGrassTexture = (text = "", seed = "") => {
     return texture;
 };
 
-const applyBladeInstance = (mesh, index, blade) => {
+const applyBladeInstance = (mesh, index, blade, sampleGroundHeight = null) => {
     const dummy = new THREE.Object3D();
-    dummy.position.set(blade.x, BLADE_HALF_HEIGHT * blade.height, blade.z);
+    const groundY = sampleGroundHeight?.(blade.x, blade.z) ?? 0;
+    dummy.position.set(blade.x, groundY + BLADE_HALF_HEIGHT * blade.height, blade.z);
     dummy.rotation.y = blade.rotationY;
     dummy.rotation.z = blade.rotationZ;
     dummy.scale.set(blade.scale, blade.height, 1);
@@ -134,7 +135,7 @@ const buildLineBlade = (plant, anchor, bladeIndex) => {
     };
 };
 
-const createInstancedGrass = (texture, blades) => {
+const createInstancedGrass = (texture, blades, sampleGroundHeight = null) => {
     const geometry = new THREE.PlaneGeometry(0.32, 0.85);
     const material = new THREE.MeshBasicMaterial({
         map: texture,
@@ -145,26 +146,29 @@ const createInstancedGrass = (texture, blades) => {
     });
 
     const mesh = new THREE.InstancedMesh(geometry, material, blades.length);
-    blades.forEach((blade, index) => applyBladeInstance(mesh, index, blade));
+    blades.forEach((blade, index) =>
+        applyBladeInstance(mesh, index, blade, sampleGroundHeight)
+    );
     mesh.instanceMatrix.needsUpdate = true;
     return mesh;
 };
 
-const createBaseGrassMesh = (plantPositions = []) => {
+const createBaseGrassMesh = (plantPositions = [], sampleGroundHeight = null) => {
     const blades = Array.from({ length: BASE_GRASS_COUNT }, (_, index) =>
         buildBaseBlade(index, plantPositions)
     );
-    return createInstancedGrass(createGrassTexture(), blades);
+    return createInstancedGrass(createGrassTexture(), blades, sampleGroundHeight);
 };
 
-const createLineGrassMesh = (plant, anchor) => {
+const createLineGrassMesh = (plant, anchor, sampleGroundHeight = null) => {
     const bladeCount = grassBladeCountForLine(plant.text, plant.id);
     const blades = Array.from({ length: bladeCount }, (_, index) =>
         buildLineBlade(plant, anchor, index)
     );
     return createInstancedGrass(
         createGrassTexture(plant.text, plant.id),
-        blades
+        blades,
+        sampleGroundHeight
     );
 };
 
@@ -174,19 +178,19 @@ const normalizePlants = (plants) =>
 export const createGrassField = (
     plants = [],
     plantPositions = [],
-    { includeBaseGrass = true } = {}
+    { includeBaseGrass = true, sampleGroundHeight = null } = {}
 ) => {
     const gardenPlants = normalizePlants(plants);
     const layout = normalizePlantPositions(plantPositions);
     const field = new THREE.Group();
 
     if (includeBaseGrass) {
-        field.add(createBaseGrassMesh(layout));
+        field.add(createBaseGrassMesh(layout, sampleGroundHeight));
     }
 
     gardenPlants.forEach((plant, index) => {
         const anchor = layout[index] ?? { x: 0, z: 0 };
-        field.add(createLineGrassMesh(plant, anchor));
+        field.add(createLineGrassMesh(plant, anchor, sampleGroundHeight));
     });
 
     return field;

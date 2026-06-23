@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { applyPlantTextureQuality } from "@/utils/gardenRenderer";
 import { getCachedPlantRenderAsset } from "@/utils/plantRenderCache";
+import { sampleTerrainSlope } from "@/utils/forestTerrain";
 
 const MAX_ATLAS_SIZE = 4096;
 const MAX_TILE_SIZE = 512;
@@ -9,6 +10,9 @@ const TILE_GUTTER = 4;
 const ALPHA_CUTOFF = 0.04;
 const ALPHA_FEATHER = 2.0;
 const ALPHA_DISCARD = 0.001;
+const GROUND_CONTACT_HEIGHT = 0.24;
+const GROUND_ROOT_FADE = 0.14;
+const GROUND_ROOT_SHADE = 0.72;
 
 const alphaFeatherGlsl = `
 float plantFeatheredAlpha(float alpha) {
@@ -21,6 +25,7 @@ const vertexShader = `
 uniform vec2 instanceScale;
 uniform vec4 instanceUvRect;
 uniform vec4 instanceSway;
+uniform vec4 instanceTerrain;
 uniform float instanceGrow;
 
 uniform float time;
@@ -28,6 +33,7 @@ uniform vec3 cameraRight;
 uniform vec3 cameraUp;
 
 varying vec2 vUv;
+varying float vLocalY;
 
 void main() {
     float t = time * instanceSway.y + instanceSway.x;
@@ -49,6 +55,15 @@ void main() {
     base.z += cos(t * 1.05) * instanceSway.w;
 
     vec3 worldPosition = base + cameraRight * rotated.x + cameraUp * rotated.y;
+
+    vec3 horizontal = cameraRight * (position.x * instanceScale.x);
+    float slopeLift = horizontal.x * instanceTerrain.x + horizontal.z * instanceTerrain.y;
+    float contactMask =
+        (1.0 - smoothstep(0.0, ${GROUND_CONTACT_HEIGHT.toFixed(2)}, position.y * instanceGrow)) *
+        instanceTerrain.z;
+    worldPosition.y += slopeLift * contactMask;
+
+    vLocalY = position.y;
     vUv = instanceUvRect.xy + uv * instanceUvRect.zw;
     gl_Position = projectionMatrix * viewMatrix * vec4(worldPosition, 1.0);
 }
@@ -56,8 +71,10 @@ void main() {
 
 const fragmentShader = `
 uniform sampler2D map;
+uniform vec4 instanceTerrain;
 
 varying vec2 vUv;
+varying float vLocalY;
 
 ${alphaFeatherGlsl}
 
@@ -66,9 +83,14 @@ void main() {
     float alpha = plantFeatheredAlpha(color.a);
     if (alpha <= ${ALPHA_DISCARD.toFixed(3)}) discard;
 
+    float groundFade = smoothstep(0.0, instanceTerrain.w, vLocalY);
+    alpha *= groundFade;
+    if (alpha <= ${ALPHA_DISCARD.toFixed(3)}) discard;
+
     vec3 rgb = color.rgb / max(color.a, ${ALPHA_DISCARD.toFixed(3)});
     float luma = dot(rgb, vec3(0.2126, 0.7152, 0.0722));
-    gl_FragColor = vec4(vec3(luma) * alpha, alpha);
+    float rootShade = mix(${GROUND_ROOT_SHADE.toFixed(2)}, 1.0, groundFade);
+    gl_FragColor = vec4(vec3(luma) * rootShade * alpha, alpha);
 }
 `;
 
@@ -114,6 +136,22 @@ const plantPosition = (plant) => ({
     z: Number.isFinite(plant?.z) ? plant.z : 0,
 });
 
+const terrainGroundContact = (sampleGroundHeight, x, z) => {
+    if (!sampleGroundHeight) {
+        return {
+            y: 0,
+            terrain: [0, 0, 0, GROUND_ROOT_FADE],
+        };
+    }
+
+    const { y, dhdx, dhdz } = sampleTerrainSlope(x, z, sampleGroundHeight);
+
+    return {
+        y,
+        terrain: [dhdx, dhdz, 1, GROUND_ROOT_FADE],
+    };
+};
+
 const createBillboardMaterial = (texture, values) =>
     new THREE.ShaderMaterial({
         uniforms: {
@@ -124,6 +162,7 @@ const createBillboardMaterial = (texture, values) =>
             instanceScale: { value: new THREE.Vector2(...values.scale) },
             instanceUvRect: { value: new THREE.Vector4(...values.uvRect) },
             instanceSway: { value: new THREE.Vector4(...values.sway) },
+            instanceTerrain: { value: new THREE.Vector4(...values.terrain) },
             instanceGrow: { value: values.grow },
         },
         vertexShader,
@@ -190,6 +229,11 @@ export const createPlantAtlasBillboards = (plants = [], options = {}) => {
         context.drawImage(asset.canvas, x, y, drawWidth, drawHeight);
 
         const position = plantPosition(plant);
+        const ground = terrainGroundContact(
+            options.sampleGroundHeight,
+            position.x,
+            position.z
+        );
         const scaleMultiplier = options.plantScaleMultiplier ?? 1;
         const sway = plantSway();
         const grow = asset.bakedTree ? getInitialGrow(plant) : 1;
@@ -222,10 +266,11 @@ export const createPlantAtlasBillboards = (plants = [], options = {}) => {
                 ],
                 uvRect,
                 sway: [sway.phase, sway.speed, sway.rollAmp, sway.offsetAmp],
+                terrain: ground.terrain,
                 grow,
             })
         );
-        mesh.position.set(position.x, 0, position.z);
+        mesh.position.set(position.x, ground.y, position.z);
         mesh.frustumCulled = false;
         mesh.userData.plantAtlas = true;
         mesh.userData.plantId = plant.id;
@@ -244,6 +289,18 @@ export const createPlantAtlasBillboards = (plants = [], options = {}) => {
     return group;
 };
 
-export const setAtlasInstancePosition = (mesh, _instanceIndex, x, z) => {
-    mesh.position.set(x, 0, z);
+export const setAtlasInstancePosition = (
+    mesh,
+    _instanceIndex,
+    x,
+    z,
+    sampleGroundHeight = null
+) => {
+    const ground = terrainGroundContact(sampleGroundHeight, x, z);
+    mesh.position.set(x, ground.y, z);
+
+    const terrainUniform = mesh.material?.uniforms?.instanceTerrain?.value;
+    if (terrainUniform) {
+        terrainUniform.set(...ground.terrain);
+    }
 };

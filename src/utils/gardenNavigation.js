@@ -80,7 +80,14 @@ const lookAnglesToward = (state, cameraY, targetX, targetY, targetZ) => {
     return walkAnglesToward(state.x, state.z, cameraY, targetX, targetY, targetZ);
 };
 
-const pointerToGround = (camera, domElement, clientX, clientY, target) => {
+const pointerToGround = (
+    camera,
+    domElement,
+    clientX,
+    clientY,
+    target,
+    { groundMeshes = [], worldAnchor = null } = {}
+) => {
     const rect = domElement.getBoundingClientRect();
     if (!rect.width || !rect.height) return false;
 
@@ -91,6 +98,23 @@ const pointerToGround = (camera, domElement, clientX, clientY, target) => {
     const raycaster = new THREE.Raycaster();
     raycaster.setFromCamera(ndc, camera);
 
+    if (groundMeshes.length > 0) {
+        const hits = raycaster.intersectObjects(groundMeshes, false);
+        if (hits.length > 0) {
+            const hit = hits[0].point;
+            if (worldAnchor) {
+                target.set(
+                    hit.x - worldAnchor.position.x,
+                    hit.y,
+                    hit.z - worldAnchor.position.z
+                );
+            } else {
+                target.copy(hit);
+            }
+            return true;
+        }
+    }
+
     const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
     return raycaster.ray.intersectPlane(groundPlane, target);
 };
@@ -99,6 +123,10 @@ export const attachGardenWalkControls = ({
     camera,
     domElement,
     cameraY,
+    eyeHeight = cameraY,
+    sampleGroundHeight = null,
+    groundMeshes = [],
+    worldAnchor = null,
     initialOffset,
     lookTarget,
     groundLookTarget = null,
@@ -113,6 +141,8 @@ export const attachGardenWalkControls = ({
     moveSpeed = DEFAULT_MOVE_SPEED,
     worldOrigin = null,
 }) => {
+    const resolveEyeY = (state) =>
+        (sampleGroundHeight?.(state.x, state.z) ?? 0) + eyeHeight;
     const mobileLike = isMobileLikePointer();
     const gardenLookTarget = groundLookTarget ?? lookTarget;
     const hasSavedState =
@@ -132,14 +162,24 @@ export const attachGardenWalkControls = ({
         : initWalkState(
               initialOffset,
               mobileLike ? gardenLookTarget : lookTarget,
-              cameraY
+              resolveEyeY({
+                  x: initialOffset.x,
+                  z: initialOffset.z,
+                  yaw: 0,
+                  pitch: 0,
+              })
           );
 
     if (mobileLike) {
         state.pitch = initWalkState(
             initialOffset,
             gardenLookTarget,
-            cameraY
+            resolveEyeY({
+                x: initialOffset.x,
+                z: initialOffset.z,
+                yaw: 0,
+                pitch: 0,
+            })
         ).pitch;
     }
 
@@ -155,11 +195,21 @@ export const attachGardenWalkControls = ({
     };
 
     const updateCamera = () => {
-        applyWalkCamera(camera, state, cameraY, worldOrigin);
+        applyWalkCamera(
+            camera,
+            state,
+            resolveEyeY(state),
+            worldOrigin
+        );
         notifyPositionChange();
     };
 
-    applyWalkCamera(camera, state, cameraY);
+    applyWalkCamera(
+        camera,
+        state,
+        resolveEyeY(state),
+        worldOrigin
+    );
 
     const pointers = new Map();
     const forward = new THREE.Vector3();
@@ -186,7 +236,13 @@ export const attachGardenWalkControls = ({
     };
 
     const startLookAt = (targetX, targetY, targetZ, duration = DEFAULT_LOOK_AT_DURATION) => {
-        const angles = lookAnglesToward(state, cameraY, targetX, targetY, targetZ);
+        const angles = lookAnglesToward(
+            state,
+            resolveEyeY(state),
+            targetX,
+            targetY,
+            targetZ
+        );
         if (!angles) return;
 
         clearMoveTarget();
@@ -215,7 +271,12 @@ export const attachGardenWalkControls = ({
     };
 
     const moveToScreenPoint = (clientX, clientY) => {
-        if (!pointerToGround(camera, domElement, clientX, clientY, groundHit)) {
+        if (
+            !pointerToGround(camera, domElement, clientX, clientY, groundHit, {
+                groundMeshes,
+                worldAnchor,
+            })
+        ) {
             return false;
         }
 

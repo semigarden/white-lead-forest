@@ -111,6 +111,7 @@ export const createForestRiverSystem = ({
     originX = 0,
     originZ = 0,
     audioUrl = riverAudioUrl,
+    sampleGroundHeight = null,
     onReady = null,
     ...config
 } = {}) => {
@@ -145,9 +146,11 @@ export const createForestRiverSystem = ({
     let originOffsetZ = 0;
 
     const syncSourcePosition = () => {
+        const groundY =
+            sampleGroundHeight?.(logicalPosition.x, logicalPosition.z) ?? 0;
         source.position.set(
             logicalPosition.x - originOffsetX,
-            0,
+            groundY,
             logicalPosition.z - originOffsetZ
         );
     };

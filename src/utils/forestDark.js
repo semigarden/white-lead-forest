@@ -2,43 +2,36 @@ import * as THREE from "three";
 import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
 import { ForestDarkShader } from "@/utils/forestDarkShader";
 import {
+    attachAudioUnlock,
+    getOrCreateAudioListener,
+} from "@/utils/forestAudio";
+import { FOREST_RIVER_MAX_SPAWN_DISTANCE } from "@/utils/forestRiver";
+import darkAudioUrl from "../../material/dark.mp3?url";
+import {
     FOREST_NIGHT_SHIFT_SHADES,
     GARDEN_SHIFT_SHADES,
 } from "@/utils/gardenShiftColors";
 
 const DEFAULT_CONFIG = {
-    fadeInDuration: 2.8,
-    holdDuration: 0.35,
-    fadeOutDuration: 2.8,
-    key: "d",
+    maxRiverDistance: FOREST_RIVER_MAX_SPAWN_DISTANCE,
+    darknessPower: 0.62,
+    darkenApproachRate: 0.85,
+    lightenRetreatRate: 1.15,
     fogDarkNear: 10,
     fogDarkFar: 42,
     bloomThresholdDark: 0.02,
     bloomStrengthDarkBoost: 1.35,
-};
-
-const PHASE = {
-    idle: "idle",
-    fadeIn: "fadeIn",
-    hold: "hold",
-    fadeOut: "fadeOut",
-};
-
-const easeInOutCubic = (t) =>
-    t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2;
-
-const isTypingTarget = (target) => {
-    if (!(target instanceof HTMLElement)) return false;
-
-    return (
-        target.isContentEditable ||
-        target.tagName === "INPUT" ||
-        target.tagName === "TEXTAREA" ||
-        target.tagName === "SELECT"
-    );
+    audioVolume: 0.75,
+    audioCurve: 0.55,
+    audioLoop: true,
 };
 
 const clampAmount = (value) => Math.min(1, Math.max(0, value));
+
+const smoothstep = (edge0, edge1, value) => {
+    const t = clampAmount((value - edge0) / (edge1 - edge0));
+    return t * t * (3 - 2 * t);
+};
 
 const lerpScalar = (from, to, t) => from + (to - from) * t;
 
@@ -144,13 +137,20 @@ const resetBloomTarget = (target) => {
     target.bloomPass.strength = target.baseStrength;
 };
 
+const targetDarknessForDistance = (distance, options) => {
+    const proximity = clampAmount(1 - distance / options.maxRiverDistance);
+    return proximity ** options.darknessPower;
+};
+
 export const createForestDarkSystem = ({
     scene,
+    camera = null,
     fog = null,
     groundMaterial = null,
     composer = null,
     bloomPass = null,
     glitchPass = null,
+    audioUrl = darkAudioUrl,
     onAmountChange = null,
     ...config
 } = {}) => {
@@ -182,11 +182,60 @@ export const createForestDarkSystem = ({
     }
 
     let amount = 0;
-    let phase = PHASE.idle;
-    let phaseElapsed = 0;
+
+    const listener = getOrCreateAudioListener(camera);
+    const audio = listener ? new THREE.Audio(listener) : null;
+    let audioLoaded = false;
+    let audioPlaying = false;
+    let audioUnlocked = false;
+    let audioUnlock = null;
+
+    const tryPlayDarkAudio = () => {
+        if (!audio || !audioLoaded || audioPlaying || !audioUnlocked) return;
+        audio.play();
+        audioPlaying = true;
+    };
+
+    const updateDarkAudio = (darkAmount) => {
+        if (!audio || !audioLoaded) return;
+
+        const gain =
+            clampAmount(darkAmount) ** options.audioCurve * options.audioVolume;
+        audio.setVolume(gain);
+
+        if (gain > 0.001) {
+            tryPlayDarkAudio();
+        }
+    };
+
+    if (audio) {
+        audio.setLoop(options.audioLoop);
+        audio.setVolume(0);
+
+        audioUnlock = attachAudioUnlock(listener, () => {
+            audioUnlocked = true;
+            tryPlayDarkAudio();
+        });
+
+        const loader = new THREE.AudioLoader();
+        loader.load(
+            audioUrl,
+            (buffer) => {
+                audio.setBuffer(buffer);
+                audioLoaded = true;
+                updateDarkAudio(amount);
+                tryPlayDarkAudio();
+            },
+            undefined,
+            (error) => {
+                console.warn("Dark audio failed to load", error);
+            }
+        );
+    }
 
     const applyAmount = (value) => {
         amount = clampAmount(value);
+        const crushAmount = amount >= 1 ? 1 : smoothstep(0.68, 1, amount);
 
         colorTargets.forEach((target) => applyInvertAmount(target, amount));
         if (fogTarget) {
@@ -199,9 +248,10 @@ export const createForestDarkSystem = ({
             applyShiftAmount(shiftTarget, amount);
         }
         if (darkenPass) {
-            darkenPass.uniforms.amount.value = amount;
+            darkenPass.uniforms.amount.value = crushAmount;
         }
 
+        updateDarkAudio(amount);
         onAmountChange?.(amount);
         return amount;
     };
@@ -223,72 +273,35 @@ export const createForestDarkSystem = ({
         }
     };
 
-    const setAmount = (value) => {
-        phase = PHASE.idle;
-        phaseElapsed = 0;
-        return applyAmount(value);
-    };
-
-    const onKeyDown = (event) => {
-        if (event.repeat) return;
-        if (event.code !== "KeyD" && event.key?.toLowerCase() !== options.key) {
-            return;
+    const updateProximity = (delta = 0, riverDistance = Number.POSITIVE_INFINITY) => {
+        if (delta <= 0) {
+            return { amount, target: targetDarknessForDistance(riverDistance, options) };
         }
-        if (isTypingTarget(event.target)) return;
-        if (phase !== PHASE.idle) return;
 
-        phase = PHASE.fadeIn;
-        phaseElapsed = 0;
-    };
+        const target = targetDarknessForDistance(riverDistance, options);
+        const diff = target - amount;
 
-    const update = (delta = 0) => {
-        if (phase === PHASE.idle) return;
-
-        phaseElapsed += delta;
-
-        switch (phase) {
-            case PHASE.fadeIn: {
-                const t = Math.min(1, phaseElapsed / options.fadeInDuration);
-                applyAmount(easeInOutCubic(t));
-                if (t >= 1) {
-                    phase = PHASE.hold;
-                    phaseElapsed = 0;
-                }
-                break;
-            }
-            case PHASE.hold: {
-                applyAmount(1);
-                if (phaseElapsed >= options.holdDuration) {
-                    phase = PHASE.fadeOut;
-                    phaseElapsed = 0;
-                }
-                break;
-            }
-            case PHASE.fadeOut: {
-                const t = Math.min(1, phaseElapsed / options.fadeOutDuration);
-                applyAmount(1 - easeInOutCubic(t));
-                if (t >= 1) {
-                    applyAmount(0);
-                    phase = PHASE.idle;
-                    phaseElapsed = 0;
-                }
-                break;
-            }
-            default:
-                break;
+        if (Math.abs(diff) < 0.0001) {
+            return { amount, target };
         }
-    };
 
-    window.addEventListener("keydown", onKeyDown);
+        const rate =
+            diff > 0 ? options.darkenApproachRate : options.lightenRetreatRate;
+        applyAmount(amount + diff * Math.min(1, rate * delta));
+
+        return { amount, target };
+    };
 
     return {
-        update,
-        setAmount,
+        updateProximity,
         getAmount: () => amount,
-        isActive: () => phase !== PHASE.idle,
         dispose: () => {
-            window.removeEventListener("keydown", onKeyDown);
             resetScene();
+            audioUnlock?.dispose();
+            if (audio?.isPlaying) {
+                audio.stop();
+            }
+            audio?.disconnect();
             if (darkenPass && composer) {
                 const index = composer.passes.indexOf(darkenPass);
                 if (index >= 0) {

@@ -1,8 +1,14 @@
 import * as THREE from "three";
 import riverAudioUrl from "../../material/river.mp3?url";
+import {
+    attachAudioUnlock,
+    getOrCreateAudioListener,
+} from "@/utils/forestAudio";
+
+export const FOREST_RIVER_MAX_SPAWN_DISTANCE = 100;
 
 const DEFAULT_CONFIG = {
-    maxSpawnDistance: 100, // 5km
+    maxSpawnDistance: FOREST_RIVER_MAX_SPAWN_DISTANCE,
     refDistance: 96,
     maxAudioDistance: 5500,
     rolloffFactor: 0.45,
@@ -115,8 +121,10 @@ export const createForestRiverSystem = ({
         options.maxSpawnDistance
     );
 
-    const listener = new THREE.AudioListener();
-    camera.add(listener);
+    const listener = getOrCreateAudioListener(camera);
+    if (!listener) {
+        throw new Error("Forest river audio requires a camera");
+    }
 
     const source = new THREE.Object3D();
     source.name = "river-sound";
@@ -152,31 +160,10 @@ export const createForestRiverSystem = ({
         playing = true;
     };
 
-    const unlock = () => {
-        if (unlocked) return;
+    const audioUnlock = attachAudioUnlock(listener, () => {
         unlocked = true;
-        if (listener.context.state === "suspended") {
-            listener.context.resume().then(tryPlay).catch(() => {});
-        } else {
-            tryPlay();
-        }
-    };
-
-    const onUnlockPointer = () => {
-        unlock();
-        window.removeEventListener("pointerdown", onUnlockPointer);
-        window.removeEventListener("keydown", onUnlockKey);
-    };
-
-    const onUnlockKey = (event) => {
-        if (event.repeat) return;
-        unlock();
-        window.removeEventListener("pointerdown", onUnlockPointer);
-        window.removeEventListener("keydown", onUnlockKey);
-    };
-
-    window.addEventListener("pointerdown", onUnlockPointer);
-    window.addEventListener("keydown", onUnlockKey);
+        tryPlay();
+    });
 
     const loader = new THREE.AudioLoader();
     loader.load(
@@ -217,10 +204,9 @@ export const createForestRiverSystem = ({
             originOffsetZ = worldOrigin?.z ?? 0;
             syncSourcePosition();
         },
-        unlock,
+        unlock: audioUnlock.unlock,
         dispose: () => {
-            window.removeEventListener("pointerdown", onUnlockPointer);
-            window.removeEventListener("keydown", onUnlockKey);
+            audioUnlock.dispose();
             if (audio.isPlaying) {
                 audio.stop();
             }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import ForestDarkControls from "@/components/ForestDarkControls";
 import ForestExhaustControls from "@/components/ForestExhaustControls";
 import ForestRiverSystem from "@/components/ForestRiverSystem";
@@ -449,11 +449,6 @@ const Forest = ({
     const [darkAmount, setDarkAmount] = useState(0);
     const [exhaustAmount, setExhaustAmount] = useState(0);
 
-    const handleDarkAmountChange = useCallback((next) => {
-        setDarkAmount(next);
-        darkSystemRef.current?.setAmount(next);
-    }, []);
-
     const getPlantMotionFactor = (plant) => {
         const shrinking = shrinkingPlantsRef.current.get(plant.id);
         if (shrinking) {
@@ -733,6 +728,7 @@ const Forest = ({
 
         const darkSystem = createForestDarkSystem({
             scene,
+            camera,
             fog: scene.fog,
             groundMaterial: ground.material,
             composer: postProcessing.composer,
@@ -894,6 +890,11 @@ const Forest = ({
                 camera
             );
 
+            darkSystem.updateProximity(
+                delta,
+                riverSystemMetricsRef.current?.distance ?? Number.POSITIVE_INFINITY
+            );
+
             const chunkCenter = `${chunkCoord(logicalCamera.x)}:${chunkCoord(logicalCamera.z)}`;
             const nextHeadingBucket = proceduralForestRef.current
                 ? headingBucket(walkStateRef.current?.yaw ?? 0)
@@ -934,7 +935,6 @@ const Forest = ({
                   )
                 : { strength: 0, trailX: 0, trailY: 0 };
             groundRipples.update(elapsed, camera);
-            darkSystem.update(delta);
             exhaustSystem.updateMovement(
                 delta,
                 logicalCamera.x,
@@ -1145,11 +1145,7 @@ const Forest = ({
             <ForestRiverSystem metricsRef={riverSystemMetricsRef} ready={ready} />
             <div className={`forest-controls${ready ? " forest-controls--ready" : ""}`}>
                 <ForestExhaustControls value={exhaustAmount} ready={ready} />
-                <ForestDarkControls
-                    value={darkAmount}
-                    onChange={handleDarkAmountChange}
-                    ready={ready}
-                />
+                <ForestDarkControls value={darkAmount} ready={ready} />
             </div>
         </div>
     );

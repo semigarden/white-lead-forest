@@ -7,6 +7,7 @@ import {
 } from "@/utils/forestAudio";
 import { FOREST_RIVER_MAX_SPAWN_DISTANCE } from "@/utils/forestRiver";
 import darkAudioUrl from "../../material/dark.mp3?url";
+import forestAudioUrl from "../../material/forest.mp3?url";
 import {
     FOREST_NIGHT_SHIFT_SHADES,
     GARDEN_SHIFT_SHADES,
@@ -24,6 +25,9 @@ const DEFAULT_CONFIG = {
     audioVolume: 0.75,
     audioCurve: 0.55,
     audioLoop: true,
+    forestFadeInEnd: 0.3,
+    forestFadeOutStart: 0.7,
+    darkAudioStart: 0.7,
 };
 
 const clampAmount = (value) => Math.min(1, Math.max(0, value));
@@ -142,6 +146,38 @@ const targetDarknessForDistance = (distance, options) => {
     return proximity ** options.darknessPower;
 };
 
+const computeDarknessAudioGains = (darkAmount, options) => {
+    const amount = clampAmount(darkAmount);
+    const fadeInEnd = clampAmount(options.forestFadeInEnd);
+    const fadeOutStart = clampAmount(options.forestFadeOutStart);
+    const darkStart = clampAmount(options.darkAudioStart);
+
+    const forestFadeIn =
+        fadeInEnd > 0 ? smoothstep(0, fadeInEnd, amount) : amount > 0 ? 1 : 0;
+    const forestFadeOut =
+        fadeOutStart < 1
+            ? 1 - smoothstep(fadeOutStart, 1, amount)
+            : amount < 1
+              ? 1
+              : 0;
+    const forestBlend = forestFadeIn * forestFadeOut;
+
+    const darkBlend =
+        darkStart < 1
+            ? smoothstep(darkStart, 1, amount)
+            : amount >= 1
+              ? 1
+              : 0;
+
+    const curve = options.audioCurve;
+    const volume = options.audioVolume;
+
+    return {
+        forest: forestBlend ** curve * volume,
+        dark: darkBlend ** curve * volume,
+    };
+};
+
 export const createForestDarkSystem = ({
     scene,
     camera = null,
@@ -150,7 +186,8 @@ export const createForestDarkSystem = ({
     composer = null,
     bloomPass = null,
     glitchPass = null,
-    audioUrl = darkAudioUrl,
+    forestAudioUrl: forestUrl = forestAudioUrl,
+    darkAudioUrl: darkUrl = darkAudioUrl,
     onAmountChange = null,
     ...config
 } = {}) => {
@@ -184,52 +221,91 @@ export const createForestDarkSystem = ({
     let amount = 0;
 
     const listener = getOrCreateAudioListener(camera);
-    const audio = listener ? new THREE.Audio(listener) : null;
-    let audioLoaded = false;
-    let audioPlaying = false;
+    const forestAudio = listener ? new THREE.Audio(listener) : null;
+    const darkAudio = listener ? new THREE.Audio(listener) : null;
+    let forestLoaded = false;
+    let darkLoaded = false;
+    let forestPlaying = false;
+    let darkPlaying = false;
     let audioUnlocked = false;
     let audioUnlock = null;
 
-    const tryPlayDarkAudio = () => {
-        if (!audio || !audioLoaded || audioPlaying || !audioUnlocked) return;
-        audio.play();
-        audioPlaying = true;
-    };
+    const tryPlayAmbientAudio = () => {
+        if (!audioUnlocked) return;
 
-    const updateDarkAudio = (darkAmount) => {
-        if (!audio || !audioLoaded) return;
-
-        const gain =
-            clampAmount(darkAmount) ** options.audioCurve * options.audioVolume;
-        audio.setVolume(gain);
-
-        if (gain > 0.001) {
-            tryPlayDarkAudio();
+        if (forestAudio && forestLoaded && !forestPlaying) {
+            forestAudio.play();
+            forestPlaying = true;
+        }
+        if (darkAudio && darkLoaded && !darkPlaying) {
+            darkAudio.play();
+            darkPlaying = true;
         }
     };
 
-    if (audio) {
+    const updateDarkAudio = (darkAmount) => {
+        if (!forestAudio && !darkAudio) return;
+
+        const { forest: forestGain, dark: darkGain } = computeDarknessAudioGains(
+            darkAmount,
+            options
+        );
+
+        if (forestAudio && forestLoaded) {
+            forestAudio.setVolume(forestGain);
+        }
+        if (darkAudio && darkLoaded) {
+            darkAudio.setVolume(darkGain);
+        }
+
+        if (forestGain > 0.001 || darkGain > 0.001) {
+            tryPlayAmbientAudio();
+        }
+    };
+
+    const loadAmbientTrack = (audio, url, onLoaded, label) => {
+        if (!audio) return;
+
         audio.setLoop(options.audioLoop);
         audio.setVolume(0);
 
-        audioUnlock = attachAudioUnlock(listener, () => {
-            audioUnlocked = true;
-            tryPlayDarkAudio();
-        });
-
         const loader = new THREE.AudioLoader();
         loader.load(
-            audioUrl,
+            url,
             (buffer) => {
                 audio.setBuffer(buffer);
-                audioLoaded = true;
+                onLoaded();
                 updateDarkAudio(amount);
-                tryPlayDarkAudio();
+                tryPlayAmbientAudio();
             },
             undefined,
             (error) => {
-                console.warn("Dark audio failed to load", error);
+                console.warn(`${label} audio failed to load`, error);
             }
+        );
+    };
+
+    if (listener) {
+        audioUnlock = attachAudioUnlock(listener, () => {
+            audioUnlocked = true;
+            tryPlayAmbientAudio();
+        });
+
+        loadAmbientTrack(
+            forestAudio,
+            forestUrl,
+            () => {
+                forestLoaded = true;
+            },
+            "Forest"
+        );
+        loadAmbientTrack(
+            darkAudio,
+            darkUrl,
+            () => {
+                darkLoaded = true;
+            },
+            "Dark"
         );
     }
 
@@ -298,10 +374,14 @@ export const createForestDarkSystem = ({
         dispose: () => {
             resetScene();
             audioUnlock?.dispose();
-            if (audio?.isPlaying) {
-                audio.stop();
+            if (forestAudio?.isPlaying) {
+                forestAudio.stop();
             }
-            audio?.disconnect();
+            if (darkAudio?.isPlaying) {
+                darkAudio.stop();
+            }
+            forestAudio?.disconnect();
+            darkAudio?.disconnect();
             if (darkenPass && composer) {
                 const index = composer.passes.indexOf(darkenPass);
                 if (index >= 0) {

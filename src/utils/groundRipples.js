@@ -1,10 +1,12 @@
 import * as THREE from "three";
 
-const POOL_SIZE = 64;
+const POOL_SIZE = 96;
 const FIELD_RADIUS = 34;
 const RIPPLE_Y = 0.035;
 const MAX_GROUND_DISTANCE = 32;
 const MIN_GROUND_DISTANCE = 0.35;
+const DEFAULT_TRAIL_STEP = 1.35;
+const DEFAULT_TRAIL_DURATION = [16, 22];
 
 const raycaster = new THREE.Raycaster();
 const ndc = new THREE.Vector2();
@@ -140,12 +142,20 @@ const createGroundSampling = ({ unbounded = false } = {}) => {
 };
 
 export const createGroundRipples = (
-    scene,
-    { unbounded = false, sampleGroundHeight = null } = {}
+    parent,
+    {
+        unbounded = false,
+        sampleGroundHeight = null,
+        walkTrail = false,
+        ambientRipples = false,
+        trailStep = DEFAULT_TRAIL_STEP,
+        trailDuration = DEFAULT_TRAIL_DURATION,
+    } = {}
 ) => {
     const { buildVisibleGround, randomVisibleGroundPoint } =
         createGroundSampling({ unbounded });
     const root = new THREE.Group();
+    root.name = "ground-ripples";
     const ripples = [];
 
     for (let index = 0; index < POOL_SIZE; index += 1) {
@@ -154,6 +164,7 @@ export const createGroundRipples = (
         ripples.push({
             mesh,
             active: false,
+            trail: false,
             birth: 0,
             duration: 1,
             maxScale: 0.3,
@@ -162,21 +173,27 @@ export const createGroundRipples = (
         });
     }
 
-    scene.add(root);
+    parent.add(root);
 
     let nextSpawnAt = 0;
+    let lastTrailX = null;
+    let lastTrailZ = null;
+    let lastPlayerX = null;
+    let lastPlayerZ = null;
 
     const spawnRipple = (elapsed, point, options = {}) => {
         const slot = ripples.find((ripple) => !ripple.active);
-        if (!slot) return;
+        if (!slot) return false;
 
         const {
             delay = 0,
             maxScale = 0.1 + Math.random() * 0.22,
             duration = 0.7 + Math.random() * 0.8,
+            trail = false,
         } = options;
 
         slot.active = true;
+        slot.trail = trail;
         slot.birth = elapsed + delay;
         slot.duration = duration;
         slot.maxScale = maxScale;
@@ -187,6 +204,33 @@ export const createGroundRipples = (
         slot.mesh.scale.setScalar(0.01);
         slot.mesh.material.opacity = 0;
         slot.mesh.visible = true;
+        return true;
+    };
+
+    const spawnWalkTrail = (elapsed, x, z) => {
+        if (!walkTrail) return;
+
+        if (lastTrailX !== null && lastTrailZ !== null) {
+            const spacing = Math.hypot(x - lastTrailX, z - lastTrailZ);
+            if (spacing < trailStep) return;
+        }
+
+        const [minDuration, maxDuration] = trailDuration;
+        const spawned = spawnRipple(
+            elapsed,
+            { x, z },
+            {
+                maxScale: 0.11 + Math.random() * 0.07,
+                duration:
+                    minDuration + Math.random() * Math.max(0.5, maxDuration - minDuration),
+                trail: true,
+            }
+        );
+
+        if (spawned) {
+            lastTrailX = x;
+            lastTrailZ = z;
+        }
     };
 
     const spawnDrop = (elapsed, camera, visibleGround) => {
@@ -206,8 +250,27 @@ export const createGroundRipples = (
         }
     };
 
-    const update = (elapsed, camera) => {
-        if (camera && elapsed >= nextSpawnAt) {
+    const update = (elapsed, camera, player = null) => {
+        if (
+            player &&
+            Number.isFinite(player.x) &&
+            Number.isFinite(player.z)
+        ) {
+            const moving =
+                lastPlayerX !== null &&
+                lastPlayerZ !== null &&
+                Math.hypot(player.x - lastPlayerX, player.z - lastPlayerZ) >
+                    0.03;
+
+            if (moving) {
+                spawnWalkTrail(elapsed, player.x, player.z);
+            }
+
+            lastPlayerX = player.x;
+            lastPlayerZ = player.z;
+        }
+
+        if (ambientRipples && camera && elapsed >= nextSpawnAt) {
             const visibleGround = buildVisibleGround(camera);
 
             if (visibleGround) {
@@ -228,6 +291,7 @@ export const createGroundRipples = (
 
             if (progress >= 1) {
                 ripple.active = false;
+                ripple.trail = false;
                 ripple.mesh.visible = false;
                 ripple.mesh.material.opacity = 0;
                 return;
@@ -235,7 +299,9 @@ export const createGroundRipples = (
 
             const eased = 1 - (1 - progress) ** 2;
             const scale = Math.max(0.01, eased * ripple.maxScale);
-            const opacity = (1 - progress) ** 1.5 * 0.26;
+            const opacity = ripple.trail
+                ? (1 - progress) ** 1.15 * 0.34
+                : (1 - progress) ** 1.5 * 0.26;
 
             ripple.mesh.scale.set(scale, scale, scale);
             ripple.mesh.material.opacity = opacity;
@@ -247,7 +313,7 @@ export const createGroundRipples = (
             ripple.mesh.geometry.dispose();
             ripple.mesh.material.dispose();
         });
-        scene.remove(root);
+        parent.remove(root);
     };
 
     return { root, update, dispose };

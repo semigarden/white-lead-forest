@@ -779,10 +779,15 @@ const Forest = ({
         });
         exhaustSystemRef.current = exhaustSystem;
 
-        const groundRipples = createGroundRipples(scene, {
-            unbounded: unboundedMovement,
-            sampleGroundHeight: terrain.sampleHeight,
-        });
+        const groundRipples = createGroundRipples(
+            walkNavigation ? worldOrigin.anchor : scene,
+            {
+                unbounded: unboundedMovement,
+                sampleGroundHeight: terrain.sampleHeight,
+                walkTrail: walkNavigation,
+                ambientRipples: !walkNavigation,
+            }
+        );
 
         const sceneLight = new THREE.Group();
         const keyLight = new THREE.DirectionalLight(0x505050, 0.62);
@@ -984,7 +989,7 @@ const Forest = ({
                       }
                   )
                 : { strength: 0, trailX: 0, trailY: 0 };
-            groundRipples.update(elapsed, camera);
+            groundRipples.update(elapsed, camera, logicalCamera);
             exhaustSystem.updateMovement(
                 delta,
                 logicalCamera.x,

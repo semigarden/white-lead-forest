@@ -1,3 +1,10 @@
+import * as THREE from "three";
+import {
+    attachAudioUnlock,
+    getOrCreateAudioListener,
+} from "@/utils/forestAudio";
+import breathAudioUrl from "../../material/breath.mp3?url";
+
 const DEFAULT_CONFIG = {
     rippleBoost: 3,
     swirlBoost: 2.5,
@@ -6,6 +13,9 @@ const DEFAULT_CONFIG = {
     restDecreaseRate: 0.0085,
     referenceWalkSpeed: 1.2,
     moveThreshold: 0.015,
+    audioVolume: 0.75,
+    audioCurve: 0.55,
+    audioLoop: true,
 };
 
 const clampAmount = (value) => Math.min(1, Math.max(0, value));
@@ -13,10 +23,12 @@ const clampAmount = (value) => Math.min(1, Math.max(0, value));
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 
 export const createForestExhaustSystem = ({
+    camera = null,
     warpPass = null,
     warpRipple = 0.014,
     warpSwirl = 0.1,
     warpChroma = 0.0022,
+    audioUrl = breathAudioUrl,
     onAmountChange = null,
     ...config
 } = {}) => {
@@ -29,6 +41,56 @@ export const createForestExhaustSystem = ({
     let lastPlayerX = null;
     let lastPlayerZ = null;
 
+    const listener = getOrCreateAudioListener(camera);
+    const audio = listener ? new THREE.Audio(listener) : null;
+    let audioLoaded = false;
+    let audioPlaying = false;
+    let audioUnlocked = false;
+    let audioUnlock = null;
+
+    const tryPlayBreathAudio = () => {
+        if (!audio || !audioLoaded || audioPlaying || !audioUnlocked) return;
+        audio.play();
+        audioPlaying = true;
+    };
+
+    const updateBreathAudio = (exhaustAmount) => {
+        if (!audio || !audioLoaded) return;
+
+        const gain =
+            clampAmount(exhaustAmount) ** options.audioCurve * options.audioVolume;
+        audio.setVolume(gain);
+
+        if (gain > 0.001) {
+            tryPlayBreathAudio();
+        }
+    };
+
+    if (audio) {
+        audio.setLoop(options.audioLoop);
+        audio.setVolume(0);
+
+        audioUnlock = attachAudioUnlock(listener, () => {
+            audioUnlocked = true;
+            tryPlayBreathAudio();
+        });
+
+        const loader = new THREE.AudioLoader();
+        loader.load(
+            audioUrl,
+            (buffer) => {
+                audio.setBuffer(buffer);
+                audioLoaded = true;
+                updateBreathAudio(amount);
+                tryPlayBreathAudio();
+            },
+            undefined,
+            (error) => {
+                console.warn("Breath audio failed to load", error);
+            }
+        );
+    }
+
     const applyAmount = (value) => {
         amount = clampAmount(value);
 
@@ -36,6 +98,7 @@ export const createForestExhaustSystem = ({
             warpPass.enabled = amount > 0;
         }
 
+        updateBreathAudio(amount);
         onAmountChange?.(amount);
         return amount;
     };
@@ -107,6 +170,11 @@ export const createForestExhaustSystem = ({
         getAmount: () => amount,
         dispose: () => {
             resetWarp();
+            audioUnlock?.dispose();
+            if (audio?.isPlaying) {
+                audio.stop();
+            }
+            audio?.disconnect();
         },
     };
 };

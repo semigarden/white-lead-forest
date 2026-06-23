@@ -739,6 +739,7 @@ const Forest = ({
         darkSystemRef.current = darkSystem;
 
         const exhaustSystem = createForestExhaustSystem({
+            camera,
             warpPass: postProcessing.warpPass,
             warpRipple: FOREST_POST_PROCESSING_PRESET.warpRipple,
             warpSwirl: FOREST_POST_PROCESSING_PRESET.warpSwirl,

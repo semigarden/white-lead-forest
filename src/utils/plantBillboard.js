@@ -161,6 +161,11 @@ export const plantFootprintRadius = (text, seed = "") => {
     return Math.max(worldWidth * 0.5, worldHeight * 0.24);
 };
 
+export const plantCollisionRadius = (text, seed = "") => {
+    const { worldHeight } = estimatePlantWorldSize(text, seed);
+    return Math.max(0.7, Math.min(1.8, worldHeight * 0.095));
+};
+
 export const plantSpacingRadius = (text, seed = "") => {
     const { worldWidth, worldHeight } = estimatePlantWorldSize(text, seed);
     return Math.max(worldWidth * 0.2, worldHeight * 0.1);

@@ -5,6 +5,7 @@ import ForestRiverSystem from "@/components/ForestRiverSystem";
 import { createForestDarkSystem } from "@/utils/forestDark";
 import { createForestExhaustSystem } from "@/utils/forestExhaust";
 import { createForestRiverSystem } from "@/utils/forestRiver";
+import { createForestCollisionSystem } from "@/utils/forestCollision";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { createPlantAtlasBillboards } from "@/utils/plantAtlasBillboard";
@@ -444,6 +445,7 @@ const Forest = ({
     const exhaustSystemRef = useRef(null);
     const riverSystemRef = useRef(null);
     const riverSystemMetricsRef = useRef(null);
+    const collisionSystemRef = useRef(null);
     const [ready, setReady] = useState(false);
     const [loadProgress, setLoadProgress] = useState(0);
     const [darkAmount, setDarkAmount] = useState(0);
@@ -560,6 +562,13 @@ const Forest = ({
         lastSyncChunkRef.current = `${chunkCoord(logicalCamera.x)}:${chunkCoord(logicalCamera.z)}`;
         lastSyncHeadingRef.current = headingBucket(yaw ?? 0);
         needsChunkSyncRef.current = false;
+
+        collisionSystemRef.current?.syncChunks({
+            position: logicalCamera,
+            radius: renderChunkRadius + 1,
+            authoredChunks: authoredChunksRef.current,
+            proceduralForest: manager,
+        });
     };
 
     plantsRef.current = plants;
@@ -636,11 +645,13 @@ const Forest = ({
         let controls = null;
         let walkControls = null;
         let detachScrollWalk = null;
-        const constrainPosition = (state) => {
-            if (unboundedMovement) return false;
-
-            clampPointToBounds(state, movementTerritoryRef.current.bounds);
-            return false;
+        const collisionSystem = createForestCollisionSystem();
+        collisionSystemRef.current = collisionSystem;
+        const constrainPosition = (state, motion) => {
+            if (!unboundedMovement) {
+                clampPointToBounds(state, movementTerritoryRef.current.bounds);
+            }
+            return collisionSystem.constrainPosition(state, motion);
         };
         const handleWalkPositionChange = (state) => {
             walkStateRef.current = state;
@@ -1024,12 +1035,14 @@ const Forest = ({
                 followPlantStateRef.current.plantKey = null;
             }
             groundRipples.dispose();
+            collisionSystem.dispose();
             darkSystem.dispose();
             exhaustSystem.dispose();
             riverSystem.dispose();
             darkSystemRef.current = null;
             exhaustSystemRef.current = null;
             riverSystemRef.current = null;
+            collisionSystemRef.current = null;
             scene.remove(sceneLight);
             disposeObject(scene);
             if (postProcessingRef) {

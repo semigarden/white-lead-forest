@@ -584,12 +584,37 @@ export const attachGardenWalkControls = ({
         }
     };
 
+    const resetPointerState = () => {
+        if (capturedPointerId !== null) {
+            try {
+                domElement.releasePointerCapture(capturedPointerId);
+            } catch {
+                // Pointer may already be released.
+            }
+            capturedPointerId = null;
+        }
+
+        pointers.clear();
+        dragMode = null;
+        pinchDistance = null;
+        lastPinchCenter = null;
+        clickCancelled = false;
+        clearMoveTarget();
+    };
+
     return {
         getState: () => state,
         applyCamera: updateCamera,
         applyPositionConstraint,
         cancelMoveTarget: clearMoveTarget,
         startLookAt,
+        setEnabled: (value) => {
+            enabled = Boolean(value);
+            if (!enabled) {
+                resetPointerState();
+            }
+        },
+        resetPointerState,
         update,
         dispose: () => {
             domElement.removeEventListener("pointerdown", onPointerDown);

@@ -5,7 +5,9 @@ import ForestRiverSystem from "@/components/ForestRiverSystem";
 import { createForestDarkSystem } from "@/utils/forestDark";
 import { createForestExhaustSystem } from "@/utils/forestExhaust";
 import { createForestRiverSystem } from "@/utils/forestRiver";
+import { finiteNumber, initForestAudioUnlock } from "@/utils/forestAudio";
 import { createForestCollisionSystem } from "@/utils/forestCollision";
+import { createForestCollapseSystem } from "@/utils/forestCollapse";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { createPlantAtlasBillboards } from "@/utils/plantAtlasBillboard";
@@ -643,6 +645,7 @@ const Forest = ({
         const camera = new THREE.PerspectiveCamera(48, 1, 0.1, 100);
         camera.position.set(cameraOffset.x, cameraOffset.y, cameraOffset.z);
         cameraRef.current = camera;
+        initForestAudioUnlock(camera);
 
         const renderer = createGardenRenderer();
         renderer.setPixelRatio(gardenPixelRatio());
@@ -829,6 +832,39 @@ const Forest = ({
             z: walkState?.z ?? worldOrigin.getLogicalXZ(camera.position.x, camera.position.z).z,
             yaw: walkState?.yaw ?? 0,
         };
+        const spawnState = walkControls?.getState?.()
+            ? {
+                  x: walkControls.getState().x,
+                  z: walkControls.getState().z,
+                  yaw: walkControls.getState().y,
+                  pitch: walkControls.getState().pitch,
+              }
+            : {
+                  x: initialView.x,
+                  z: initialView.z,
+                  yaw: initialView.yaw,
+                  pitch: 0,
+              };
+
+        const collapseSystem = createForestCollapseSystem({
+            mount,
+            getDarkAmount: () => darkSystem.getAmount(),
+            darkSystem,
+            exhaustSystem,
+            walkControls,
+            worldOrigin,
+            terrain,
+            groundRipples,
+            positionSaver,
+            getSpawnState: () => spawnState,
+            onReset: (spawn) => {
+                walkStateRef.current = spawn;
+                setDarkAmount(0);
+                setExhaustAmount(0);
+                needsChunkSyncRef.current = true;
+            },
+            runChunkSync,
+        });
 
         const riverSystem = createForestRiverSystem({
             camera,
@@ -926,6 +962,8 @@ const Forest = ({
             const delta = timer.getDelta();
             const elapsed = timer.getElapsed();
             walkControls?.update(delta);
+            collapseSystem.update(delta);
+            const collapsing = collapseSystem.isActive();
             if (worldOrigin.rebaseIfNeeded(camera, controls?.target)) {
                 terrain.updateForOrigin(
                     worldOrigin.origin.x,
@@ -938,17 +976,22 @@ const Forest = ({
                 camera.position.x,
                 camera.position.z
             );
+            const playerX = finiteNumber(logicalCamera.x);
+            const playerZ = finiteNumber(logicalCamera.z);
 
             riverSystemMetricsRef.current = riverSystem.updateNavigation(
-                logicalCamera.x,
-                logicalCamera.z,
+                playerX,
+                playerZ,
                 camera
             );
 
-            darkSystem.updateProximity(
-                delta,
-                riverSystemMetricsRef.current?.distance ?? Number.POSITIVE_INFINITY
-            );
+            if (!collapsing) {
+                darkSystem.updateProximity(
+                    delta,
+                    riverSystemMetricsRef.current?.distance ??
+                        Number.POSITIVE_INFINITY
+                );
+            }
 
             const chunkCenter = `${chunkCoord(logicalCamera.x)}:${chunkCoord(logicalCamera.z)}`;
             const nextHeadingBucket = proceduralForestRef.current
@@ -989,12 +1032,14 @@ const Forest = ({
                       }
                   )
                 : { strength: 0, trailX: 0, trailY: 0 };
-            groundRipples.update(elapsed, camera, logicalCamera);
-            exhaustSystem.updateMovement(
-                delta,
-                logicalCamera.x,
-                logicalCamera.z
-            );
+            if (!collapsing) {
+                groundRipples.update(elapsed, camera, logicalCamera);
+                exhaustSystem.updateMovement(
+                    delta,
+                    logicalCamera.x,
+                    logicalCamera.z
+                );
+            }
             postProcessing.update(elapsed, { plants: plantMotion });
             exhaustSystem.applyFrame(elapsed);
             postProcessing.composer.render();
@@ -1078,6 +1123,7 @@ const Forest = ({
                 followPlantStateRef.current.plantKey = null;
             }
             groundRipples.dispose();
+            collapseSystem.dispose();
             terrain.dispose();
             collisionSystem.dispose();
             darkSystem.dispose();

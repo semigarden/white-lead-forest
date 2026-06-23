@@ -68,6 +68,15 @@ body {
     opacity: 1;
 }
 
+.forest-blackout {
+    position: absolute;
+    inset: 0;
+    z-index: 5;
+    pointer-events: none;
+    background: #000;
+    opacity: 0;
+}
+
 .forest-dark {
     position: relative;
     width: min(220px, calc(100vw - 32px));

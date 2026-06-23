@@ -1,8 +1,10 @@
 import * as THREE from "three";
 import riverAudioUrl from "../../material/river.mp3?url";
 import {
-    attachAudioUnlock,
-    getOrCreateAudioListener,
+    finiteNumber,
+    onForestAudioUnlock,
+    safeAudioVolume,
+    unlockForestAudio,
 } from "@/utils/forestAudio";
 
 export const FOREST_RIVER_MAX_SPAWN_DISTANCE = 100;
@@ -35,11 +37,19 @@ const sampleRiverPosition = (originX, originZ, maxDistance) => {
 };
 
 const getHorizontalForward = (camera) => {
+    if (!camera) {
+        return { x: 0, z: -1 };
+    }
+
     const forward = new THREE.Vector3();
     camera.getWorldDirection(forward);
     forward.y = 0;
 
-    if (forward.lengthSq() < 1e-6) {
+    if (
+        !Number.isFinite(forward.x) ||
+        !Number.isFinite(forward.z) ||
+        forward.lengthSq() < 1e-6
+    ) {
         return { x: 0, z: -1 };
     }
 
@@ -48,8 +58,10 @@ const getHorizontalForward = (camera) => {
 };
 
 const computeNavigation = (logicalPosition, playerX, playerZ, camera, options) => {
-    const dx = logicalPosition.x - playerX;
-    const dz = logicalPosition.z - playerZ;
+    const safePlayerX = finiteNumber(playerX);
+    const safePlayerZ = finiteNumber(playerZ);
+    const dx = logicalPosition.x - safePlayerX;
+    const dz = logicalPosition.z - safePlayerZ;
     const distance = Math.hypot(dx, dz);
 
     let alignment = 0;
@@ -84,24 +96,24 @@ const computeNavigation = (logicalPosition, playerX, playerZ, camera, options) =
     const guidedDirectionGain = rawFacingGain * rawBehindGain;
     const directionGain = 1 + (guidedDirectionGain - 1) * facingWeight;
 
-    const navigationGain = distanceGain * directionGain;
+    const navigationGain = finiteNumber(distanceGain * directionGain, 0);
 
     return {
-        distance,
-        alignment,
-        proximity,
-        nearBlend,
-        distanceGain,
-        facingGain: rawFacingGain,
-        directionGain,
+        distance: finiteNumber(distance),
+        alignment: finiteNumber(alignment),
+        proximity: finiteNumber(proximity),
+        nearBlend: finiteNumber(nearBlend),
+        distanceGain: finiteNumber(distanceGain),
+        facingGain: finiteNumber(rawFacingGain),
+        directionGain: finiteNumber(directionGain),
         navigationGain,
         riverX: logicalPosition.x,
         riverZ: logicalPosition.z,
-        playerX,
-        playerZ,
-        relativeBearing,
-        radarX: Math.sin(relativeBearing),
-        radarY: -Math.cos(relativeBearing),
+        playerX: safePlayerX,
+        playerZ: safePlayerZ,
+        relativeBearing: finiteNumber(relativeBearing),
+        radarX: finiteNumber(Math.sin(relativeBearing)),
+        radarY: finiteNumber(-Math.cos(relativeBearing)),
     };
 };
 
@@ -122,28 +134,16 @@ export const createForestRiverSystem = ({
         options.maxSpawnDistance
     );
 
-    const listener = getOrCreateAudioListener(camera);
-    if (!listener) {
-        throw new Error("Forest river audio requires a camera");
-    }
-
     const source = new THREE.Object3D();
     source.name = "river-sound";
     anchor?.add(source);
 
-    const audio = new THREE.PositionalAudio(listener);
-    audio.setRefDistance(options.refDistance);
-    audio.setRolloffFactor(options.rolloffFactor);
-    audio.setMaxDistance(options.maxAudioDistance);
-    audio.setLoop(options.loop);
-    audio.setVolume(0);
-    source.add(audio);
-
-    let unlocked = false;
+    let audio = null;
     let loaded = false;
     let playing = false;
     let originOffsetX = 0;
     let originOffsetZ = 0;
+    let disposeAudioUnlock = null;
 
     const syncSourcePosition = () => {
         const groundY =
@@ -158,30 +158,39 @@ export const createForestRiverSystem = ({
     syncSourcePosition();
 
     const tryPlay = () => {
-        if (!loaded || playing || !unlocked) return;
+        if (!audio || !loaded || playing) return;
         audio.play();
         playing = true;
     };
 
-    const audioUnlock = attachAudioUnlock(listener, () => {
-        unlocked = true;
-        tryPlay();
-    });
+    const initAudio = (listener) => {
+        if (!listener || audio) return;
 
-    const loader = new THREE.AudioLoader();
-    loader.load(
-        audioUrl,
-        (buffer) => {
-            audio.setBuffer(buffer);
-            loaded = true;
-            onReady?.({ ...logicalPosition });
-            tryPlay();
-        },
-        undefined,
-        (error) => {
-            console.warn("River audio failed to load", error);
-        }
-    );
+        audio = new THREE.PositionalAudio(listener);
+        audio.setRefDistance(options.refDistance);
+        audio.setRolloffFactor(options.rolloffFactor);
+        audio.setMaxDistance(options.maxAudioDistance);
+        audio.setLoop(options.loop);
+        audio.setVolume(0);
+        source.add(audio);
+
+        const loader = new THREE.AudioLoader();
+        loader.load(
+            audioUrl,
+            (buffer) => {
+                audio.setBuffer(buffer);
+                loaded = true;
+                onReady?.({ ...logicalPosition });
+                tryPlay();
+            },
+            undefined,
+            (error) => {
+                console.warn("River audio failed to load", error);
+            }
+        );
+    };
+
+    disposeAudioUnlock = onForestAudioUnlock(initAudio);
 
     const updateNavigation = (playerX = 0, playerZ = 0, camera = null) => {
         const metrics = computeNavigation(
@@ -192,8 +201,10 @@ export const createForestRiverSystem = ({
             options
         );
 
-        if (loaded) {
-            audio.setVolume(options.volume * metrics.navigationGain);
+        if (loaded && audio) {
+            audio.setVolume(
+                safeAudioVolume(options.volume * metrics.navigationGain)
+            );
         }
 
         return metrics;
@@ -207,16 +218,17 @@ export const createForestRiverSystem = ({
             originOffsetZ = worldOrigin?.z ?? 0;
             syncSourcePosition();
         },
-        unlock: audioUnlock.unlock,
+        unlock: unlockForestAudio,
         dispose: () => {
-            audioUnlock.dispose();
-            if (audio.isPlaying) {
+            disposeAudioUnlock?.();
+            if (audio?.isPlaying) {
                 audio.stop();
             }
-            source.remove(audio);
+            if (audio) {
+                source.remove(audio);
+                audio.disconnect();
+            }
             anchor?.remove(source);
-            camera.remove(listener);
-            audio.disconnect();
         },
     };
 };

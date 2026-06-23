@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import {
-    attachAudioUnlock,
-    getOrCreateAudioListener,
+    onForestAudioUnlock,
+    safeAudioVolume,
 } from "@/utils/forestAudio";
 import breathAudioUrl from "../../material/breath.mp3?url";
 
@@ -41,15 +41,13 @@ export const createForestExhaustSystem = ({
     let lastPlayerX = null;
     let lastPlayerZ = null;
 
-    const listener = getOrCreateAudioListener(camera);
-    const audio = listener ? new THREE.Audio(listener) : null;
+    let audio = null;
     let audioLoaded = false;
     let audioPlaying = false;
-    let audioUnlocked = false;
-    let audioUnlock = null;
+    let disposeAudioUnlock = null;
 
     const tryPlayBreathAudio = () => {
-        if (!audio || !audioLoaded || audioPlaying || !audioUnlocked) return;
+        if (!audio || !audioLoaded || audioPlaying) return;
         audio.play();
         audioPlaying = true;
     };
@@ -59,21 +57,19 @@ export const createForestExhaustSystem = ({
 
         const gain =
             clampAmount(exhaustAmount) ** options.audioCurve * options.audioVolume;
-        audio.setVolume(gain);
+        audio.setVolume(safeAudioVolume(gain));
 
         if (gain > 0.001) {
             tryPlayBreathAudio();
         }
     };
 
-    if (audio) {
+    const initAudio = (listener) => {
+        if (!listener || audio) return;
+
+        audio = new THREE.Audio(listener);
         audio.setLoop(options.audioLoop);
         audio.setVolume(0);
-
-        audioUnlock = attachAudioUnlock(listener, () => {
-            audioUnlocked = true;
-            tryPlayBreathAudio();
-        });
 
         const loader = new THREE.AudioLoader();
         loader.load(
@@ -89,6 +85,10 @@ export const createForestExhaustSystem = ({
                 console.warn("Breath audio failed to load", error);
             }
         );
+    };
+
+    if (camera) {
+        disposeAudioUnlock = onForestAudioUnlock(initAudio);
     }
 
     const applyAmount = (value) => {
@@ -164,13 +164,20 @@ export const createForestExhaustSystem = ({
         return { amount, moving, speed };
     };
 
+    const resetAmount = () => {
+        resetWarp();
+        updateBreathAudio(0);
+        onAmountChange?.(0);
+    };
+
     return {
         updateMovement,
         applyFrame,
         getAmount: () => amount,
+        resetAmount,
         dispose: () => {
             resetWarp();
-            audioUnlock?.dispose();
+            disposeAudioUnlock?.();
             if (audio?.isPlaying) {
                 audio.stop();
             }

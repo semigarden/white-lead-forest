@@ -316,5 +316,18 @@ export const createGroundRipples = (
         parent.remove(root);
     };
 
-    return { root, update, dispose };
+    const clearTrail = () => {
+        ripples.forEach((ripple) => {
+            ripple.active = false;
+            ripple.trail = false;
+            ripple.mesh.visible = false;
+            ripple.mesh.material.opacity = 0;
+        });
+        lastTrailX = null;
+        lastTrailZ = null;
+        lastPlayerX = null;
+        lastPlayerZ = null;
+    };
+
+    return { root, update, clearTrail, dispose };
 };

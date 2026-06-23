@@ -2,8 +2,8 @@ import * as THREE from "three";
 import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
 import { ForestDarkShader } from "@/utils/forestDarkShader";
 import {
-    attachAudioUnlock,
-    getOrCreateAudioListener,
+    onForestAudioUnlock,
+    safeAudioVolume,
 } from "@/utils/forestAudio";
 import { FOREST_RIVER_MAX_SPAWN_DISTANCE } from "@/utils/forestRiver";
 import darkAudioUrl from "../../material/dark.mp3?url";
@@ -219,19 +219,15 @@ export const createForestDarkSystem = ({
 
     let amount = 0;
 
-    const listener = getOrCreateAudioListener(camera);
-    const forestAudio = listener ? new THREE.Audio(listener) : null;
-    const darkAudio = listener ? new THREE.Audio(listener) : null;
+    let forestAudio = null;
+    let darkAudio = null;
     let forestLoaded = false;
     let darkLoaded = false;
     let forestPlaying = false;
     let darkPlaying = false;
-    let audioUnlocked = false;
-    let audioUnlock = null;
+    let disposeAudioUnlock = null;
 
     const tryPlayAmbientAudio = () => {
-        if (!audioUnlocked) return;
-
         if (forestAudio && forestLoaded && !forestPlaying) {
             forestAudio.play();
             forestPlaying = true;
@@ -251,10 +247,10 @@ export const createForestDarkSystem = ({
         );
 
         if (forestAudio && forestLoaded) {
-            forestAudio.setVolume(forestGain);
+            forestAudio.setVolume(safeAudioVolume(forestGain));
         }
         if (darkAudio && darkLoaded) {
-            darkAudio.setVolume(darkGain);
+            darkAudio.setVolume(safeAudioVolume(darkGain));
         }
 
         if (forestGain > 0.001 || darkGain > 0.001) {
@@ -284,11 +280,11 @@ export const createForestDarkSystem = ({
         );
     };
 
-    if (listener) {
-        audioUnlock = attachAudioUnlock(listener, () => {
-            audioUnlocked = true;
-            tryPlayAmbientAudio();
-        });
+    const initAudio = (listener) => {
+        if (!listener || forestAudio || darkAudio) return;
+
+        forestAudio = new THREE.Audio(listener);
+        darkAudio = new THREE.Audio(listener);
 
         loadAmbientTrack(
             forestAudio,
@@ -306,6 +302,10 @@ export const createForestDarkSystem = ({
             },
             "Dark"
         );
+    };
+
+    if (camera) {
+        disposeAudioUnlock = onForestAudioUnlock(initAudio);
     }
 
     const applyAmount = (value) => {
@@ -371,9 +371,10 @@ export const createForestDarkSystem = ({
     return {
         updateProximity,
         getAmount: () => amount,
+        resetAmount: () => applyAmount(0),
         dispose: () => {
             resetScene();
-            audioUnlock?.dispose();
+            disposeAudioUnlock?.();
             if (forestAudio?.isPlaying) {
                 forestAudio.stop();
             }

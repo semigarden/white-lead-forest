@@ -215,3 +215,124 @@ body {
 .forest-dark__track:has(.forest-dark__slider:focus-visible) {
     box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.35);
 }
+
+.forest-river-system {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    z-index: 3;
+    width: min(180px, calc(100vw - 32px));
+    display: grid;
+    gap: 10px;
+    padding: 12px 14px;
+    border-radius: 10px;
+    background: rgba(0, 1, 0, 0.72);
+    backdrop-filter: blur(8px);
+    color: rgba(255, 255, 255, 0.92);
+}
+
+.forest-river-system__label {
+    margin: 0;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.72);
+}
+
+.forest-river-system__radar {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 1;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.05);
+    overflow: hidden;
+}
+
+.forest-river-system__ring {
+    position: absolute;
+    inset: 0;
+    margin: auto;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 50%;
+}
+
+.forest-river-system__ring--outer {
+    width: 92%;
+    height: 92%;
+}
+
+.forest-river-system__ring--inner {
+    width: 46%;
+    height: 46%;
+}
+
+.forest-river-system__axis {
+    position: absolute;
+    background: rgba(255, 255, 255, 0.12);
+}
+
+.forest-river-system__axis--x {
+    left: 8%;
+    right: 8%;
+    top: 50%;
+    height: 1px;
+    transform: translateY(-50%);
+}
+
+.forest-river-system__axis--z {
+    top: 8%;
+    bottom: 8%;
+    left: 50%;
+    width: 1px;
+    transform: translateX(-50%);
+}
+
+.forest-river-system__player {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #fff;
+    transform: translate(-50%, -50%);
+    box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.25);
+}
+
+.forest-river-system__marker {
+    position: absolute;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: rgba(120, 190, 255, 0.95);
+    transform: translate(-50%, -50%);
+    box-shadow: 0 0 10px rgba(120, 190, 255, 0.55);
+}
+
+.forest-river-system__stats {
+    display: grid;
+    gap: 8px;
+    margin: 0;
+}
+
+.forest-river-system__stat {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.forest-river-system__stat dt {
+    margin: 0;
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.58);
+}
+
+.forest-river-system__stat dd {
+    margin: 0;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    color: rgba(255, 255, 255, 0.95);
+}

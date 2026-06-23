@@ -572,7 +572,7 @@ export const attachScrollWalk = ({
             -0.45,
             0.45
         );
-        move.copy(forward).multiplyScalar(-step);
+        move.copy(forward).multiplyScalar(step);
         onMove(move);
     };
 

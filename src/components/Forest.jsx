@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import ForestDarkControls from "@/components/ForestDarkControls";
 import ForestExhaustControls from "@/components/ForestExhaustControls";
+import ForestRiverSystem from "@/components/ForestRiverSystem";
 import { createForestDarkSystem } from "@/utils/forestDark";
 import { createForestExhaustSystem } from "@/utils/forestExhaust";
+import { createForestRiverSystem } from "@/utils/forestRiver";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { createPlantAtlasBillboards } from "@/utils/plantAtlasBillboard";
@@ -440,6 +442,8 @@ const Forest = ({
     const initialLoadCompleteRef = useRef(false);
     const darkSystemRef = useRef(null);
     const exhaustSystemRef = useRef(null);
+    const riverSystemRef = useRef(null);
+    const riverSystemMetricsRef = useRef(null);
     const [ready, setReady] = useState(false);
     const [loadProgress, setLoadProgress] = useState(0);
     const [darkAmount, setDarkAmount] = useState(0);
@@ -794,6 +798,15 @@ const Forest = ({
             yaw: walkState?.yaw ?? 0,
         };
 
+        const riverSystem = createForestRiverSystem({
+            camera,
+            anchor: worldOrigin.anchor,
+            originX: initialView.x,
+            originZ: initialView.z,
+        });
+        riverSystemRef.current = riverSystem;
+        riverSystem.syncWorldOrigin(worldOrigin.origin);
+
         const initialChunkKeys = manager
             ? collectInitialChunkKeys(initialView, manager.settings)
             : null;
@@ -873,17 +886,18 @@ const Forest = ({
             const elapsed = timer.getElapsed();
             walkControls?.update(delta);
             worldOrigin.rebaseIfNeeded(camera, controls?.target);
+            riverSystem.syncWorldOrigin(worldOrigin.origin);
 
-            const walkState = walkStateRef.current;
-            const logicalCamera =
-                walkState &&
-                Number.isFinite(walkState.x) &&
-                Number.isFinite(walkState.z)
-                    ? { x: walkState.x, z: walkState.z }
-                    : worldOrigin.getLogicalXZ(
-                          camera.position.x,
-                          camera.position.z
-                      );
+            const logicalCamera = worldOrigin.getLogicalXZ(
+                camera.position.x,
+                camera.position.z
+            );
+
+            riverSystemMetricsRef.current = riverSystem.updateNavigation(
+                logicalCamera.x,
+                logicalCamera.z,
+                camera
+            );
 
             const chunkCenter = `${chunkCoord(logicalCamera.x)}:${chunkCoord(logicalCamera.z)}`;
             const nextHeadingBucket = proceduralForestRef.current
@@ -1012,8 +1026,10 @@ const Forest = ({
             groundRipples.dispose();
             darkSystem.dispose();
             exhaustSystem.dispose();
+            riverSystem.dispose();
             darkSystemRef.current = null;
             exhaustSystemRef.current = null;
+            riverSystemRef.current = null;
             scene.remove(sceneLight);
             disposeObject(scene);
             if (postProcessingRef) {
@@ -1127,6 +1143,7 @@ const Forest = ({
                     </div>
                 </div>
             )}
+            <ForestRiverSystem metricsRef={riverSystemMetricsRef} ready={ready} />
             <div className={`forest-controls${ready ? " forest-controls--ready" : ""}`}>
                 <ForestExhaustControls
                     value={exhaustAmount}

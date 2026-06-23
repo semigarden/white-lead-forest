@@ -1,35 +1,16 @@
 const DEFAULT_CONFIG = {
-    fadeInDuration: 2.4,
-    holdDuration: 0.35,
-    fadeOutDuration: 2.4,
-    key: "e",
     rippleBoost: 3,
     swirlBoost: 2.5,
     chromaBoost: 3,
-};
-
-const PHASE = {
-    idle: "idle",
-    fadeIn: "fadeIn",
-    hold: "hold",
-    fadeOut: "fadeOut",
-};
-
-const easeInOutCubic = (t) =>
-    t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2;
-
-const isTypingTarget = (target) => {
-    if (!(target instanceof HTMLElement)) return false;
-
-    return (
-        target.isContentEditable ||
-        target.tagName === "INPUT" ||
-        target.tagName === "TEXTAREA" ||
-        target.tagName === "SELECT"
-    );
+    walkIncreaseRate: 0.0555, // 0.0055
+    restDecreaseRate: 0.0085,
+    referenceWalkSpeed: 1.2,
+    moveThreshold: 0.015,
 };
 
 const clampAmount = (value) => Math.min(1, Math.max(0, value));
+
+const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 
 export const createForestExhaustSystem = ({
     warpPass = null,
@@ -45,8 +26,8 @@ export const createForestExhaustSystem = ({
     const maxChroma = warpChroma * options.chromaBoost;
 
     let amount = 0;
-    let phase = PHASE.idle;
-    let phaseElapsed = 0;
+    let lastPlayerX = null;
+    let lastPlayerZ = null;
 
     const applyAmount = (value) => {
         amount = clampAmount(value);
@@ -61,6 +42,8 @@ export const createForestExhaustSystem = ({
 
     const resetWarp = () => {
         amount = 0;
+        lastPlayerX = null;
+        lastPlayerZ = null;
         if (warpPass) {
             warpPass.enabled = false;
             warpPass.uniforms.ripple.value = 0;
@@ -83,72 +66,46 @@ export const createForestExhaustSystem = ({
         warpPass.uniforms.chroma.value = maxChroma * amount;
     };
 
-    const setAmount = (value) => {
-        phase = PHASE.idle;
-        phaseElapsed = 0;
-        return applyAmount(value);
-    };
-
-    const onKeyDown = (event) => {
-        if (event.repeat) return;
-        if (event.code !== "KeyE" && event.key?.toLowerCase() !== options.key) {
-            return;
+    const updateMovement = (delta = 0, playerX = 0, playerZ = 0) => {
+        if (delta <= 0) {
+            return { amount, moving: false, speed: 0 };
         }
-        if (isTypingTarget(event.target)) return;
-        if (phase !== PHASE.idle) return;
 
-        phase = PHASE.fadeIn;
-        phaseElapsed = 0;
-    };
-
-    const update = (delta = 0) => {
-        if (phase === PHASE.idle) return;
-
-        phaseElapsed += delta;
-
-        switch (phase) {
-            case PHASE.fadeIn: {
-                const t = Math.min(1, phaseElapsed / options.fadeInDuration);
-                applyAmount(easeInOutCubic(t));
-                if (t >= 1) {
-                    phase = PHASE.hold;
-                    phaseElapsed = 0;
-                }
-                break;
-            }
-            case PHASE.hold: {
-                applyAmount(1);
-                if (phaseElapsed >= options.holdDuration) {
-                    phase = PHASE.fadeOut;
-                    phaseElapsed = 0;
-                }
-                break;
-            }
-            case PHASE.fadeOut: {
-                const t = Math.min(1, phaseElapsed / options.fadeOutDuration);
-                applyAmount(1 - easeInOutCubic(t));
-                if (t >= 1) {
-                    applyAmount(0);
-                    phase = PHASE.idle;
-                    phaseElapsed = 0;
-                }
-                break;
-            }
-            default:
-                break;
+        if (lastPlayerX === null || lastPlayerZ === null) {
+            lastPlayerX = playerX;
+            lastPlayerZ = playerZ;
+            return { amount, moving: false, speed: 0 };
         }
-    };
 
-    window.addEventListener("keydown", onKeyDown);
+        const dx = playerX - lastPlayerX;
+        const dz = playerZ - lastPlayerZ;
+        lastPlayerX = playerX;
+        lastPlayerZ = playerZ;
+
+        const speed = Math.hypot(dx, dz) / delta;
+        const moving = speed > options.moveThreshold;
+
+        if (moving) {
+            const speedFactor = clamp(
+                speed / options.referenceWalkSpeed,
+                0.15,
+                1.5
+            );
+            applyAmount(
+                amount + options.walkIncreaseRate * speedFactor * delta
+            );
+        } else {
+            applyAmount(amount - options.restDecreaseRate * delta);
+        }
+
+        return { amount, moving, speed };
+    };
 
     return {
-        update,
+        updateMovement,
         applyFrame,
-        setAmount,
         getAmount: () => amount,
-        isActive: () => phase !== PHASE.idle,
         dispose: () => {
-            window.removeEventListener("keydown", onKeyDown);
             resetWarp();
         },
     };

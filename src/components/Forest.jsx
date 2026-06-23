@@ -454,11 +454,6 @@ const Forest = ({
         darkSystemRef.current?.setAmount(next);
     }, []);
 
-    const handleExhaustAmountChange = useCallback((next) => {
-        setExhaustAmount(next);
-        exhaustSystemRef.current?.setAmount(next);
-    }, []);
-
     const getPlantMotionFactor = (plant) => {
         const shrinking = shrinkingPlantsRef.current.get(plant.id);
         if (shrinking) {
@@ -940,7 +935,11 @@ const Forest = ({
                 : { strength: 0, trailX: 0, trailY: 0 };
             groundRipples.update(elapsed, camera);
             darkSystem.update(delta);
-            exhaustSystem.update(delta);
+            exhaustSystem.updateMovement(
+                delta,
+                logicalCamera.x,
+                logicalCamera.z
+            );
             postProcessing.update(elapsed, { plants: plantMotion });
             exhaustSystem.applyFrame(elapsed);
             postProcessing.composer.render();
@@ -1145,11 +1144,7 @@ const Forest = ({
             )}
             <ForestRiverSystem metricsRef={riverSystemMetricsRef} ready={ready} />
             <div className={`forest-controls${ready ? " forest-controls--ready" : ""}`}>
-                <ForestExhaustControls
-                    value={exhaustAmount}
-                    onChange={handleExhaustAmountChange}
-                    ready={ready}
-                />
+                <ForestExhaustControls value={exhaustAmount} ready={ready} />
                 <ForestDarkControls
                     value={darkAmount}
                     onChange={handleDarkAmountChange}

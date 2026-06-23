@@ -81,18 +81,17 @@ const lookAnglesToward = (state, cameraY, targetX, targetY, targetZ) => {
 };
 
 const worldPointToLogical = (worldX, worldY, worldZ, worldAnchor, worldOrigin) => {
-    const originX = worldOrigin?.x ?? 0;
-    const originZ = worldOrigin?.z ?? 0;
-
     if (worldAnchor) {
         return {
-            x: worldX - worldAnchor.position.x + originX,
+            x: worldX - worldAnchor.position.x,
             y: worldY,
-            z: worldZ - worldAnchor.position.z + originZ,
+            z: worldZ - worldAnchor.position.z,
         };
     }
 
-    return { x: worldX, y: worldY, z: worldZ };
+    const originX = worldOrigin?.x ?? 0;
+    const originZ = worldOrigin?.z ?? 0;
+    return { x: worldX + originX, y: worldY, z: worldZ + originZ };
 };
 
 const pointerToGround = (

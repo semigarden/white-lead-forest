@@ -60,6 +60,7 @@ const TAP_MOVE_THRESHOLD = 12;
 const CLICK_MOVE_THRESHOLD = 6;
 const DEFAULT_MOVE_SPEED = 10;
 const DEFAULT_LOOK_AT_DURATION = 1.35;
+const KEYBOARD_MOVE_SPEED_MULTIPLIER = 0.4;
 
 const easeOutCubic = (t) => 1 - (1 - t) ** 3;
 
@@ -261,6 +262,7 @@ export const attachGardenWalkControls = ({
     let clickCancelled = false;
     let suppressClickUntil = 0;
     let lookAtAnimation = null;
+    const pressedKeys = new Set();
 
     const clearMoveTarget = () => {
         hasMoveTarget = false;
@@ -563,14 +565,80 @@ export const attachGardenWalkControls = ({
     };
 
     const onContextMenu = (event) => event.preventDefault();
+    const isArrowKey = (key) =>
+        key === "ArrowUp" ||
+        key === "ArrowDown" ||
+        key === "ArrowLeft" ||
+        key === "ArrowRight";
+
+    const onKeyDown = (event) => {
+        if (!enabled || !isArrowKey(event.key)) return;
+        event.preventDefault();
+        pressedKeys.add(event.key);
+        lookAtAnimation = null;
+        clearMoveTarget();
+    };
+
+    const onKeyUp = (event) => {
+        if (!isArrowKey(event.key)) return;
+        pressedKeys.delete(event.key);
+    };
 
     domElement.addEventListener("pointerdown", onPointerDown, { passive: false });
     domElement.addEventListener("pointermove", onPointerMove, { passive: false });
     domElement.addEventListener("pointerup", endDrag, { passive: false });
     domElement.addEventListener("pointercancel", endDrag, { passive: false });
     domElement.addEventListener("contextmenu", onContextMenu);
+    window.addEventListener("keydown", onKeyDown, { passive: false });
+    window.addEventListener("keyup", onKeyUp);
 
     const update = (delta = 0) => {
+        if (enabled && delta > 0 && pressedKeys.size > 0) {
+            const forwardInput =
+                (pressedKeys.has("ArrowUp") ? 1 : 0) -
+                (pressedKeys.has("ArrowDown") ? 1 : 0);
+            const strafeInput =
+                (pressedKeys.has("ArrowRight") ? 1 : 0) -
+                (pressedKeys.has("ArrowLeft") ? 1 : 0);
+
+            if (forwardInput !== 0 || strafeInput !== 0) {
+                const forwardVector = new THREE.Vector3(0, 0, -1).applyQuaternion(
+                    camera.quaternion
+                );
+                forwardVector.y = 0;
+                if (forwardVector.lengthSq() > 0.0001) {
+                    forwardVector.normalize();
+                }
+
+                const rightVector = new THREE.Vector3(1, 0, 0).applyQuaternion(
+                    camera.quaternion
+                );
+                rightVector.y = 0;
+                if (rightVector.lengthSq() > 0.0001) {
+                    rightVector.normalize();
+                }
+
+                const movement = new THREE.Vector3();
+                movement.addScaledVector(forwardVector, forwardInput);
+                movement.addScaledVector(rightVector, strafeInput);
+
+                if (movement.lengthSq() > 0.0001) {
+                    movement.normalize();
+                    const step =
+                        moveSpeed * KEYBOARD_MOVE_SPEED_MULTIPLIER * delta;
+                    const motion = {
+                        dx: movement.x * step,
+                        dz: movement.z * step,
+                    };
+                    state.x += motion.dx;
+                    state.z += motion.dz;
+                    if (!applyPositionConstraint(motion)) {
+                        updateCamera();
+                    }
+                }
+            }
+        }
+
         if (lookAtAnimation && delta > 0) {
             lookAtAnimation.elapsed += delta;
             const progress = Math.min(
@@ -654,6 +722,7 @@ export const attachGardenWalkControls = ({
             enabled = Boolean(value);
             if (!enabled) {
                 resetPointerState();
+                pressedKeys.clear();
             }
         },
         resetPointerState,
@@ -666,6 +735,8 @@ export const attachGardenWalkControls = ({
             domElement.removeEventListener("pointerup", endDrag);
             domElement.removeEventListener("pointercancel", endDrag);
             domElement.removeEventListener("contextmenu", onContextMenu);
+            window.removeEventListener("keydown", onKeyDown);
+            window.removeEventListener("keyup", onKeyUp);
         },
     };
 };

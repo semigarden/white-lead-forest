@@ -18,6 +18,11 @@ body {
     inset: 0;
 }
 
+.forest--hide-cursor,
+.forest--hide-cursor * {
+    cursor: none !important;
+}
+
 .forest-loader {
     position: absolute;
     inset: 0;

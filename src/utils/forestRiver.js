@@ -7,7 +7,7 @@ import {
     unlockForestAudio,
 } from "@/utils/forestAudio";
 
-export const FOREST_RIVER_MAX_SPAWN_DISTANCE = 300;
+export const FOREST_RIVER_MAX_SPAWN_DISTANCE = 100;
 
 const DEFAULT_CONFIG = {
     maxSpawnDistance: FOREST_RIVER_MAX_SPAWN_DISTANCE,

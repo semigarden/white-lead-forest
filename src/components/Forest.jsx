@@ -466,6 +466,7 @@ const Forest = ({
     const [loadProgress, setLoadProgress] = useState(0);
     const [darkAmount, setDarkAmount] = useState(0);
     const [exhaustAmount, setExhaustAmount] = useState(0);
+    const [cursorHidden, setCursorHidden] = useState(false);
 
     const getPlantMotionFactor = (plant) => {
         const shrinking = shrinkingPlantsRef.current.get(plant.id);
@@ -1188,6 +1189,17 @@ const Forest = ({
     ]);
 
     useEffect(() => {
+        const onKeyDown = (event) => {
+            if (event.repeat) return;
+            if (event.key.toLowerCase() !== "m") return;
+            setCursorHidden((value) => !value);
+        };
+
+        window.addEventListener("keydown", onKeyDown);
+        return () => window.removeEventListener("keydown", onKeyDown);
+    }, []);
+
+    useEffect(() => {
         movementTerritoryRef.current = computeMovementTerritory(
             plants,
             movementBounds
@@ -1226,7 +1238,7 @@ const Forest = ({
         <div
             className={`forest${
                 ready || !SHOW_LOADING_SCREEN ? " forest--ready" : ""
-            }`}
+            }${cursorHidden ? " forest--hide-cursor" : ""}`}
         >
             <div ref={mountRef} className="canvas" />
             {SHOW_LOADING_SCREEN && !ready && (
